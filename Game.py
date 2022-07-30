@@ -9,7 +9,7 @@ import numpy as np
 
 
 class Game:
-    def __init__(self, players, rules=None):
+    def __init__(self, players, rules=None, render_mode='ascii'):
         self.players = players
         self.number_players = len(players)
         self.scores = np.zeros(self.number_players, dtype=np.uint)
@@ -19,74 +19,34 @@ class Game:
         else:
             self.rules = rules
 
-        self.env = DiceWorld.DiceWorld(self.number_players, rules)
+        self.render_mode = render_mode
+
+        self.env = DiceWorld.DiceWorld([p.name for p in players], rules)
         self.done = False
 
         self.counter = 0
 
-    def visualize_action(self, action):
-        print('ACTION')
-        print('Take dice:', end='')
-        for i, act_i in enumerate(action[:self.rules.number_dice]):
-            if act_i:
-                print(f'  {i}', end='')
+    # def visualize_obs(self, obs, info=None, done=False):
+    #     if info:
+    #         if 'intermediate_obs' in info and info['intermediate_obs']:
+    #             N_intermediate = len(info['intermediate_obs'])
+    #             for i, obs_ in enumerate(info['intermediate_obs']):
+    #                 self.visualize_scores(obs_, None)
+    #                 dice_values = obs_['dice_values']
+    #                 self.visualize_dice(dice_values)
+    #                 if N_intermediate > 1 and i < N_intermediate - 1:
+    #                     print('No action possible. Advance players\' turn')
+    #
+    #         if 'description' in info:
+    #             print(info['description'])
+    #
+    #     dice_values = obs['dice_values']
+    #     self.visualize_scores(obs, info)
+    #     self.visualize_dice(dice_values)
+    #
+    #     print()
 
-        print(f', Fuse: ', end='')
-        if action[-2]:
-            print('YES, ', end='')
-        else:
-            print('NO, ', end='')
 
-        print('Collect:', end='')
-        if action[-1]:
-            print('YES')
-        else:
-            print('NO')
-
-    def visualize_scores(self, obs, info):
-        players_scores = obs['players_scores']
-        players_turn = obs['players_turn']
-
-        print('+------------------------------------------------+')
-        print('Scores')
-        for i, score in enumerate(players_scores):
-            if players_turn[i]:
-                print('>', end='')
-            else:
-                print(' ', end='')
-            if players_turn[i] and info and 'current_score' in info:
-                print(f"{self.players[i].name:>10}: {score:5d} ({info['current_score']})")
-            else:
-                print(f"{self.players[i].name:>10}: {score:5d} ")
-        print()
-
-    def visualize_obs(self, obs, info=None, done=False):
-        if info:
-            if 'intermediate_obs' in info and info['intermediate_obs']:
-                N_intermediate = len(info['intermediate_obs'])
-                for i, obs_ in enumerate(info['intermediate_obs']):
-                    self.visualize_scores(obs_, None)
-                    dice_values = obs_['dice_values']
-                    self.visualize_dice(dice_values)
-                    if N_intermediate > 1 and i < N_intermediate - 1:
-                        print('No action possible. Advance players\' turn')
-
-            if 'description' in info:
-                print(info['description'])
-
-        dice_values = obs['dice_values']
-        self.visualize_scores(obs, info)
-        self.visualize_dice(dice_values)
-
-        print()
-
-    def visualize_dice(self, dice_values):
-        for value in dice_values:
-            if not value:
-                print(' _ ', end='')
-            else:
-                print(f' {value} ', end='')
-        print()
 
     def read_and_parse_input(self):
 
@@ -142,11 +102,18 @@ class Game:
             action[self.rules.number_dice+1] = True
         return action
 
+    def render(self):
+        if self.render_mode == 'ascii':
+            text = self.env.render(mode=self.render_mode)
+            print(text)
+        else:
+            raise NotImplementedError()
+
     def play(self, interactive=False, step_by_step=False):
         art.tprint('Dice 10000', font='random')
 
         obs, info = self.env.reset(return_info=True)
-        self.visualize_obs(obs, info)
+        self.render()
 
         while not self.done:
             self.counter += 1
@@ -162,10 +129,8 @@ class Game:
             else:
                 action = self.players[self.env.get_players_turn()].act(obs)
 
-            self.visualize_action(action)
-
             obs, rew, done, info = self.env.step(action)
-            self.visualize_obs(obs, info, done)
+            self.render()
 
             self.done = done
 
@@ -181,4 +146,4 @@ if __name__ == '__main__':
     ]
 
     game = Game(players, rules)
-    game.play(step_by_step=True)
+    game.play(step_by_step=False, interactive=False)

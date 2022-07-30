@@ -23,14 +23,17 @@ REWARD_WON = 10000
 
 class DiceWorld(gym.Env):
 
-    def __init__(self, number_players = 2, rules=None, size=5, window_size=512, debug=False):
+    def __init__(self, player_names=('Player1', 'Player2'), rules=None, size=5, window_size=512, debug=False):
 
-        metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
+        metadata = {"render_modes": ["human", "ascii"], "render_fps": 0.2}
 
-        self.__number_players = number_players
+        self.__player_names = player_names
+        self.__number_players = len(player_names)
 
         if not rules:
-            rules = Rules.Rules()
+            self.__rules = Rules.Rules()
+        else:
+            self.__rules = rules
 
         self.__number_dice = rules.number_dice
         self.__max_score = rules.max_score
@@ -44,11 +47,13 @@ class DiceWorld(gym.Env):
         self.debug = debug
 
         self.__dice_values = None  # current values of dice
-        # self.__intermediate_dice_values = None  # used to remember states where no action was possible
         self.__current_score = None  # score in current round
         self.__current_min_collect_score = None  # minimum required score to collect
         self.__players_scores = None  # captures overall scores of all players throughout game
         self.__players_turn = None  # captures whose player's turn it is
+
+        self.__intermediate_obs = []  # used to remember observations where no action was possible
+        self.__last_action = None  # used to remember last action (for visualization)
 
         # Observations are the values of the dice, whether or not they are already taken or not,
         # and the current score
@@ -57,8 +62,8 @@ class DiceWorld(gym.Env):
                 'values': spaces.Tuple([spaces.Discrete(self.__face_high+1)] * self.__number_dice),
                 'current_score': spaces.Box(0, np.inf, [1]),
                 'current_min_collect_score': spaces.Box(0, np.inf, [1]),
-                'players_scores': spaces.Box(0, np.inf, [number_players]),
-                'players_turn': spaces.Discrete(number_players)
+                'players_scores': spaces.Box(0, np.inf, [self.__number_players]),
+                'players_turn': spaces.Discrete(self.__number_players)
             }
         )
 
@@ -134,9 +139,14 @@ class DiceWorld(gym.Env):
         self.__players_turn = np.zeros([self.__number_players], dtype=bool)
         self.__players_turn[0] = 1
 
-    def reset_for_next_players_turn(self):
+    def __reset_intermediate_obs(self):
+        self.__intermediate_obs = []
+
+    def __reset_last_action(self):
+        self.__last_action = None
+
+    def __reset_for_next_players_turn(self):
         self.__reset_current_score()
-        intermediate_obs = []
 
         while True:
             self.__reset_dice_values()
@@ -145,9 +155,7 @@ class DiceWorld(gym.Env):
             if self.is_any_action_possible():
                 break
 
-            intermediate_obs.append(copy.deepcopy(self.__get_obs()))
-
-        return intermediate_obs
+            self.__intermediate_obs.append(copy.deepcopy(self.__get_obs()))
 
     def reset(self, seed=None, return_info=False, options=None):
         # We need the following line to seed self.np_random
@@ -159,14 +167,14 @@ class DiceWorld(gym.Env):
         self.__reset_current_min_collect_score()
         self.__reset_dice_values()
 
-        if self.is_any_action_possible():
-            intermediate_obs = []
-        else:
-            intermediate_obs = self.reset_for_next_players_turn()
+        self.__reset_last_action()
+        self.__reset_intermediate_obs()
+
+        if not self.is_any_action_possible():
+            self.__reset_for_next_players_turn()
 
         observation = self.__get_obs()
-        info = {'intermediate_obs': intermediate_obs}
-        return (observation, info) if return_info else observation
+        return (observation, None) if return_info else observation
 
     def __is_straight(self):
         if not self.__dice_taken().any():
@@ -355,10 +363,11 @@ class DiceWorld(gym.Env):
         :return:
         """
 
+        self.__reset_intermediate_obs()
+        self.__last_action = action
+
         assert isinstance(action, np.ndarray)
         assert action.dtype == bool
-
-        info = {}
 
         action_dict = self.__decode_action(action)
 
@@ -368,12 +377,9 @@ class DiceWorld(gym.Env):
 
         if not self.__is_action_valid(action_dict):
             self.__reset_current_min_collect_score()
+            self.__reset_for_next_players_turn()
 
-            info['status'] = envStatus.ACTION_INVALID
-            info['description'] = f'Player {np.argmax(self.__players_turn)}: took invalid action {action}'
-            info['intermediate_obs'] = self.reset_for_next_players_turn()
-
-            return self.__get_obs(), REWARD_INVALID_ACTION, False, info
+            return self.__get_obs(), REWARD_INVALID_ACTION, False, None
 
         else:
             self.__take_dice(dice_to_take)
@@ -384,10 +390,7 @@ class DiceWorld(gym.Env):
             if collect:
                 self.__collect()
                 done = self.__players_scores[self.__players_turn] >= self.__max_score
-
-                info['status'] = envStatus.ADVANCE_PLAYER
-                info['description'] = f'Player {np.argmax(self.__players_turn)} collected {self.__current_score} points'
-                info['intermediate_obs'] = self.reset_for_next_players_turn()
+                self.__reset_for_next_players_turn()
 
                 current_obs = copy.deepcopy(self.__get_obs())
                 current_score = self.__current_score
@@ -398,7 +401,7 @@ class DiceWorld(gym.Env):
                 else:
                     reward = current_score
 
-                return current_obs, reward, done, info
+                return current_obs, reward, done, None
 
             else:
                 if self.__dice_taken().all():
@@ -407,33 +410,102 @@ class DiceWorld(gym.Env):
                     self.__roll_remaining_dice()
 
                 if self.is_any_action_possible():
-                    info['status'] = envStatus.SAME_PLAYER
-                    info['description'] = f"Next move of player {np.argmax(self.__players_turn)}"
-                    info['current_score'] = self.__current_score
-                    return self.__get_obs(), 0, False, info
+                    return self.__get_obs(), 0, False, None
                 else:
                     self.__reset_current_min_collect_score()
 
-                    # FIXME
-                    # self.print_current_player()
+                    self.__intermediate_obs.append(copy.deepcopy(self.__get_obs()))
+                    self.__reset_for_next_players_turn()
 
-                    current_obs = [copy.deepcopy(self.__get_obs()), ]
+                    return self.__get_obs(), 0, False, None
 
-                    info['status'] = envStatus.ADVANCE_PLAYER
-                    info['description'] = 'No action possible. Advance players\' turn'
-                    intermediate_obs = self.reset_for_next_players_turn()
-                    info['intermediate_obs'] = current_obs + intermediate_obs
+    def visualize_dice_str(self, dice_values):
+        output_str = ''
+        for value in dice_values:
+            if not value:
+                output_str += ' _ '
+            else:
+                output_str += f' {value} '
+        output_str += '\n'
+        return output_str
 
-                    return self.__get_obs(), 0, False, info
+    def visualize_scores_str(self, obs):
+        players_scores = obs['players_scores']
+        players_turn = obs['players_turn']
 
-    # def render(self, mode='text'):
-    #     """
-    #     Visualize current state of the environment
-    #     :param mode:
-    #     :return:
-    #     """
+        output_str = ''
+        output_str += '+------------------------------------------------+\n'
+        output_str += 'Scores\n'
+        for i, score in enumerate(players_scores):
+            if players_turn[i]:
+                output_str += '>'
+            else:
+                output_str += ' '
+            if players_turn[i]:
+                output_str += f"{self.__player_names[i]:>10}: {score:5d} ({self.__current_score})\n"
+            else:
+                output_str += f"{self.__player_names[i]:>10}: {score:5d} \n"
+        output_str += '\n'
+        return output_str
 
+    def visualize_action_str(self, action):
+        output_str = ''
+        current_player_name = self.__player_names[np.argmax(self.__players_turn)]
+        output_str += f'ACTION ({current_player_name})\n'
+        output_str += 'Take dice:'
+        for i, act_i in enumerate(action[:self.__number_dice]):
+            if act_i:
+                output_str += f'  {i}'
 
+        output_str += f', Fuse: '
+        if action[-2]:
+            output_str += 'YES, '
+        else:
+            output_str += 'NO, '
+
+        output_str += 'Collect:'
+        if action[-1]:
+            output_str += 'YES\n'
+        else:
+            output_str += 'NO\n'
+
+        return output_str
+
+    def render(self, mode='ascii'):
+        """
+        Visualize current state of the environment
+        :param mode:
+        :return:
+        """
+        if mode == 'rgb_array':
+            # return np.array(...)  # return RGB frame suitable for video
+            raise NotImplementedError()
+        elif mode == 'human':
+            # pop up a window and render
+            raise NotImplementedError()
+        elif mode == 'ascii':
+            output_str = ''
+
+            if self.__last_action is not None:
+                output_str += self.visualize_action_str(self.__last_action)
+
+            if self.__intermediate_obs:
+                # N_intermediate = len(self.__intermediate_obs)
+                for i, obs_ in enumerate(self.__intermediate_obs):
+                    output_str += self.visualize_scores_str(obs_)
+                    dice_values = obs_['dice_values']
+                    output_str += self.visualize_dice_str(dice_values)
+                    # if N_intermediate > 1 and i < N_intermediate - 1:
+                    output_str += 'No action possible. Advance players\' turn\n'
+
+            output_str += self.visualize_scores_str(self.__get_obs())
+            output_str += self.visualize_dice_str(self.__dice_values)
+
+            output_str += '\n'
+            return output_str
+
+        else:
+            super(DiceWorld, self).render(mode=mode)  # just raise an exception
 
     # def render(self, mode="human"):
     #     if self.window is None and mode == "human":
