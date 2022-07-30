@@ -26,10 +26,10 @@ class Game:
 
     def visualize_action(self, action):
         print('ACTION')
-        print('Take dice: ', end='')
+        print('Take dice:', end='')
         for i, act_i in enumerate(action[:self.rules.number_dice]):
             if act_i:
-                print(f' {i} ', end='')
+                print(f'  {i}', end='')
 
         print(f', Fuse: ', end='')
         if action[-2]:
@@ -43,16 +43,7 @@ class Game:
         else:
             print('NO')
 
-    def visualize_obs(self, obs, info=None, done=False):
-        if hasattr(info, 'status'):
-            if info['status'] == envStatus.ACTION_INVALID:
-                print(info['description'])
-            elif info['status'] == envStatus.ADVANCE_PLAYER:
-                print(info['description'])
-            elif info['status'] == envStatus.SAME_PLAYER:
-                print(f'Next move of player {np.argmax(obs.players_turn)}')
-
-        dice_values = obs['dice_values']
+    def visualize_scores(self, obs, info):
         players_scores = obs['players_scores']
         players_turn = obs['players_turn']
 
@@ -63,18 +54,31 @@ class Game:
                 print('>', end='')
             else:
                 print(' ', end='')
-            print(f"{self.players[i].name:>10}: {score:5d}")
+            if players_turn[i] and info and 'current_score' in info:
+                print(f"{self.players[i].name:>10}: {score:5d} ({info['current_score']})")
+            else:
+                print(f"{self.players[i].name:>10}: {score:5d} ")
         print()
 
-        if not done:
+    def visualize_obs(self, obs, info=None, done=False):
+        if info:
+            if 'intermediate_obs' in info and info['intermediate_obs']:
+                N_intermediate = len(info['intermediate_obs'])
+                for i, obs_ in enumerate(info['intermediate_obs']):
+                    self.visualize_scores(obs_, None)
+                    dice_values = obs_['dice_values']
+                    self.visualize_dice(dice_values)
+                    if N_intermediate > 1 and i < N_intermediate - 1:
+                        print('No action possible. Advance players\' turn')
 
-            if info:
-                if hasattr(info, 'intermediate_obs'):
-                    for obs in info.intermediate_obs:
-                        self.visualize_obs(obs, None)
+            if 'description' in info:
+                print(info['description'])
 
-            self.visualize_dice(dice_values)
-            print()
+        dice_values = obs['dice_values']
+        self.visualize_scores(obs, info)
+        self.visualize_dice(dice_values)
+
+        print()
 
     def visualize_dice(self, dice_values):
         for value in dice_values:
@@ -84,26 +88,89 @@ class Game:
                 print(f' {value} ', end='')
         print()
 
-    def play(self):
+    def read_and_parse_input(self):
+
+        print('Which dice (0-based positions) should be taken?')
+        while True:
+            try:
+                dice_to_take = np.array(list(map(int, input("elements of array:-").strip().split())))
+                break
+            except:
+                pass
+            print('Invalid input. Try again')
+
+        print('Fuse two 5s? (y/n)')
+        while True:
+            try:
+                inp = input()
+                if inp in ['y', 'Y']:
+                    fuse = True
+                    break
+                if inp in ['n', 'N']:
+                    fuse = False
+                    break
+            except:
+                pass
+            print('Invalid input. Try again')
+
+        print('Collect? (y/n)')
+        while True:
+            try:
+                inp = input()
+                if inp in ['y', 'Y']:
+                    collect = True
+                    break
+                if inp in ['n', 'N']:
+                    collect = False
+                    break
+            except:
+                pass
+            print('Invalid input. Try again')
+
+        return self.encode_action(dice_to_take, fuse, collect)
+
+    def encode_action(self, dice_to_take, fuse, collect):
+        if (dice_to_take > self.rules.number_dice).any():
+            return np.zeros(self.rules.number_dice + 2, dtype=bool)  # default invalid action
+
+        action = np.zeros(self.rules.number_dice+2, dtype=bool)
+        for die in dice_to_take:
+            action[die] = 1
+        if fuse:
+            action[self.rules.number_dice] = True
+        if collect:
+            action[self.rules.number_dice+1] = True
+        return action
+
+    def play(self, interactive=False, step_by_step=False):
         art.tprint('Dice 10000', font='random')
 
-        obs = self.env.reset()
-        self.visualize_obs(obs)
+        obs, info = self.env.reset(return_info=True)
+        self.visualize_obs(obs, info)
+
         while not self.done:
             self.counter += 1
 
-            action = self.players[self.env.get_players_turn()].act(obs)
+            if interactive:
+                if self.env.get_players_turn()[0]:
+                    action = self.read_and_parse_input()
+                else:
+                    action = self.players[self.env.get_players_turn()].act(obs)
+            elif step_by_step:
+                _ = input('Press any key')
+                action = self.players[self.env.get_players_turn()].act(obs)
+            else:
+                action = self.players[self.env.get_players_turn()].act(obs)
 
             self.visualize_action(action)
 
             obs, rew, done, info = self.env.step(action)
-
             self.visualize_obs(obs, info, done)
 
             self.done = done
 
-        # self.visualize_obs(obs, info)
         print(f"Player {np.argmax(obs['players_scores'])} won the game")
+
 
 if __name__ == '__main__':
     rules = Rules.Rules()
@@ -114,4 +181,4 @@ if __name__ == '__main__':
     ]
 
     game = Game(players, rules)
-    game.play()
+    game.play(step_by_step=True)

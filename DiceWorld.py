@@ -8,35 +8,43 @@ Created based on "Environment Creation",  https://www.gymlibrary.ml/content/envi
 
 """
 
+import Rules
+from EnvStatus import *
+
 import numpy as np
 import gym
 from gym import spaces
 import pygame
+import copy
 
-face_high = 6
 REWARD_INVALID_ACTION = -10
+REWARD_WON = 10000
 
 
 class DiceWorld(gym.Env):
 
-    def __init__(self, number_dice:np.uint8=6, number_players:np.uint8=2, max_score:np.uint=10000,
-                 min_collect_score=450, straight_score=2000, min_multiple=3,
-                 debug=False):
+    def __init__(self, number_players = 2, rules=None, size=5, window_size=512, debug=False):
 
         metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
 
-        self.debug = debug
-        self.__number_dice = number_dice
         self.__number_players = number_players
-        self.__max_score = max_score
-        self.__min_collect_score = min_collect_score
 
-        self.__min_multiple = min_multiple  # minimum number of equal-value dice that make a pairing ("Pasch")
-        self.__straight_score = straight_score  # score for a straight (dice: 1-2-3-4-5-6)
+        if not rules:
+            rules = Rules.Rules()
 
-        self.window = 512  # size of the PyGame window
+        self.__number_dice = rules.number_dice
+        self.__max_score = rules.max_score
+        self.__min_collect_score = rules.min_collect_score
+        self.__face_high = rules.face_high
+        self.__min_multiple = rules.min_multiple  # minimum number of equal-value dice that make a pairing ("Pasch")
+        self.__straight_score = rules.straight_score  # score for a straight (dice: 1-2-3-4-5-6)
+
+        self.size = size  # size of the square grid
+        self.window_size = 512  # size of the PyGame window
+        self.debug = debug
 
         self.__dice_values = None  # current values of dice
+        # self.__intermediate_dice_values = None  # used to remember states where no action was possible
         self.__current_score = None  # score in current round
         self.__current_min_collect_score = None  # minimum required score to collect
         self.__players_scores = None  # captures overall scores of all players throughout game
@@ -46,7 +54,7 @@ class DiceWorld(gym.Env):
         # and the current score
         self.observation_space = spaces.Dict(
             {
-                'values': spaces.Tuple([spaces.Discrete(face_high+1)] * number_dice),
+                'values': spaces.Tuple([spaces.Discrete(self.__face_high+1)] * self.__number_dice),
                 'current_score': spaces.Box(0, np.inf, [1]),
                 'current_min_collect_score': spaces.Box(0, np.inf, [1]),
                 'players_scores': spaces.Box(0, np.inf, [number_players]),
@@ -56,7 +64,7 @@ class DiceWorld(gym.Env):
 
         # Actions: take die i (one-hot encoded, with one bit for each of number_dice dice), fuse, collect,
         # i.e. in total number_dice + 2 possible actions
-        self.action_space = spaces.MultiBinary(number_dice+2)
+        self.action_space = spaces.MultiBinary(self.__number_dice+2)
 
         """
         If human-rendering is used, `self.window` will be a reference
@@ -81,6 +89,9 @@ class DiceWorld(gym.Env):
     # def get_values(self):
     #     return self.__dice_values
 
+    def get_players_turn(self):
+        return np.argmax(self.__players_turn)
+
     def __get_obs(self):
         return {
             'dice_values': self.__dice_values,
@@ -94,10 +105,11 @@ class DiceWorld(gym.Env):
         return self.__dice_values == 0
 
     def __roll_remaining_dice(self):
-        self.__dice_values[~self.__dice_taken()] = np.random.randint(1, face_high + 1, int(np.sum(~self.__dice_taken())))
+        self.__dice_values[~self.__dice_taken()] = np.random.randint(1, self.__face_high + 1,
+                                                                     int(np.sum(~self.__dice_taken())))
 
     def __reset_dice_values(self):
-        self.__dice_values = np.random.randint(1, face_high + 1, [self.__number_dice], dtype='uint8')
+        self.__dice_values = np.random.randint(1, self.__face_high + 1, [self.__number_dice], dtype='uint8')
 
     def __reset_current_score(self):
         self.__current_score = 0
@@ -122,36 +134,43 @@ class DiceWorld(gym.Env):
         self.__players_turn = np.zeros([self.__number_players], dtype=bool)
         self.__players_turn[0] = 1
 
-    def __reset_for_next_players_turn(self):
-        # self._reset_dice_taken()
-        self.__reset_dice_values()
+    def reset_for_next_players_turn(self):
         self.__reset_current_score()
-        self.__advance_players_turn()
+        intermediate_obs = []
 
-        # self._roll_remaining_dice()
+        while True:
+            self.__reset_dice_values()
+            self.__advance_players_turn()
 
-        # observation = self._get_obs()
-        # info = None
-        # return (observation, info) if return_info else observation
+            if self.is_any_action_possible():
+                break
+
+            intermediate_obs.append(copy.deepcopy(self.__get_obs()))
+
+        return intermediate_obs
 
     def reset(self, seed=None, return_info=False, options=None):
         # We need the following line to seed self.np_random
         super().reset(seed=seed)
 
-        # self._reset_dice_taken()
-        self.__reset_dice_values()
         self.__reset_current_score()
         self.__reset_players_scores()
         self.__reset_players_turn()
         self.__reset_current_min_collect_score()
+        self.__reset_dice_values()
+
+        if self.is_any_action_possible():
+            intermediate_obs = []
+        else:
+            intermediate_obs = self.reset_for_next_players_turn()
 
         observation = self.__get_obs()
-        info = None
+        info = {'intermediate_obs': intermediate_obs}
         return (observation, info) if return_info else observation
 
     def __is_straight(self):
         if not self.__dice_taken().any():
-            return np.array([np.sum(self.__dice_values == i) == 1 for i in range(1, face_high)]).all()
+            return np.array([np.sum(self.__dice_values == i) == 1 for i in range(1, self.__face_high)]).all()
         else:
             return False
 
@@ -210,7 +229,7 @@ class DiceWorld(gym.Env):
             fused = True
 
         # check that dice that should be taken are valid, i.e., each die is either 1, 5, or part of a "Pasch", i.e.,
-        # triplet, quadruplet, ..., or part of a straight (1-2-3-...-face_high)
+        # triplet, quadruplet, ..., or part of a straight (1-2-3-...-self.__face_high)
         for pos, take_die in enumerate(dice_to_take):
             if take_die:
                 if not self.__is_1_or_5(pos):
@@ -312,6 +331,22 @@ class DiceWorld(gym.Env):
         self.__players_scores[self.__players_turn] += self.__current_score
         self.__current_min_collect_score = self.__current_score + 50
 
+    def is_any_action_possible(self):
+        # Checks whether at least on die can be taken, otherwise the next player gets to play
+        # Check for straight would be redundant, as a straight contains 1s and 5s, i.e. if straight, the check for 1 or
+        # 5 below is true
+
+        if (self.__dice_values == 1).any() or (self.__dice_values == 5).any():
+            return True
+        else:
+            for pos, val in enumerate(self.__dice_values):
+                if val in [0, 1, 5]:
+                    continue  # does not need to be checked; [1,5] checked by if statement above and 0 cannot be taken
+                if self.__is_part_of_multiple(pos):
+                    return True
+
+        return False
+
     def step(self, action):
         """
         Apply the action to the environment and compute the next state of the environment
@@ -323,6 +358,8 @@ class DiceWorld(gym.Env):
         assert isinstance(action, np.ndarray)
         assert action.dtype == bool
 
+        info = {}
+
         action_dict = self.__decode_action(action)
 
         dice_to_take = action_dict['dice_to_take']
@@ -330,10 +367,14 @@ class DiceWorld(gym.Env):
         collect = action_dict['collect']
 
         if not self.__is_action_valid(action_dict):
-            # self._current_reward = REWARD_INVALID_ACTION
             self.__reset_current_min_collect_score()
-            self.__reset_for_next_players_turn()
-            return self.__get_obs(), REWARD_INVALID_ACTION, False, None
+
+            info['status'] = envStatus.ACTION_INVALID
+            info['description'] = f'Player {np.argmax(self.__players_turn)}: took invalid action {action}'
+            info['intermediate_obs'] = self.reset_for_next_players_turn()
+
+            return self.__get_obs(), REWARD_INVALID_ACTION, False, info
+
         else:
             self.__take_dice(dice_to_take)
 
@@ -343,19 +384,124 @@ class DiceWorld(gym.Env):
             if collect:
                 self.__collect()
                 done = self.__players_scores[self.__players_turn] >= self.__max_score
-                self.__reset_for_next_players_turn()
-                return self.__get_obs(), self.__current_score, done, None
+
+                info['status'] = envStatus.ADVANCE_PLAYER
+                info['description'] = f'Player {np.argmax(self.__players_turn)} collected {self.__current_score} points'
+                info['intermediate_obs'] = self.reset_for_next_players_turn()
+
+                current_obs = copy.deepcopy(self.__get_obs())
+                current_score = self.__current_score
+
+                if done:
+                    self.reset()
+                    reward = REWARD_WON
+                else:
+                    reward = current_score
+
+                return current_obs, reward, done, info
+
             else:
                 if self.__dice_taken().all():
                     self.__reset_dice_values()
                 else:
                     self.__roll_remaining_dice()
 
-                return self.__get_obs(), 0, False, None
+                if self.is_any_action_possible():
+                    info['status'] = envStatus.SAME_PLAYER
+                    info['description'] = f"Next move of player {np.argmax(self.__players_turn)}"
+                    info['current_score'] = self.__current_score
+                    return self.__get_obs(), 0, False, info
+                else:
+                    self.__reset_current_min_collect_score()
+
+                    # FIXME
+                    # self.print_current_player()
+
+                    current_obs = [copy.deepcopy(self.__get_obs()), ]
+
+                    info['status'] = envStatus.ADVANCE_PLAYER
+                    info['description'] = 'No action possible. Advance players\' turn'
+                    intermediate_obs = self.reset_for_next_players_turn()
+                    info['intermediate_obs'] = current_obs + intermediate_obs
+
+                    return self.__get_obs(), 0, False, info
+
+    # def render(self, mode='text'):
+    #     """
+    #     Visualize current state of the environment
+    #     :param mode:
+    #     :return:
+    #     """
+
+
+
+    # def render(self, mode="human"):
+    #     if self.window is None and mode == "human":
+    #         pygame.init()
+    #         pygame.display.init()
+    #         self.window = pygame.display.set_mode((self.window_size, self.window_size))
+    #     if self.clock is None and mode == "human":
+    #         self.clock = pygame.time.Clock()
+    #
+    #     canvas = pygame.Surface((self.window_size, self.window_size))
+    #     canvas.fill((0, 0, 0))
+    #     pix_square_size = (
+    #         self.window_size / self.size
+    #     )  # The size of a single grid square in pixels
+    #
+    #     # First we draw the target
+    #     pygame.draw.rect(
+    #         canvas,
+    #         (255, 0, 0),
+    #         pygame.Rect(
+    #             pix_square_size * self._target_location,
+    #             (pix_square_size, pix_square_size),
+    #         ),
+    #     )
+    #     # Now we draw the agent
+    #     pygame.draw.circle(
+    #         canvas,
+    #         (0, 0, 255),
+    #         (self._agent_location + 0.5) * pix_square_size,
+    #         pix_square_size / 3,
+    #     )
+    #
+    #     # Finally, add some gridlines
+    #     for x in range(self.size + 1):
+    #         pygame.draw.line(
+    #             canvas,
+    #             0,
+    #             (0, pix_square_size * x),
+    #             (self.window_size, pix_square_size * x),
+    #             width=3,
+    #         )
+    #         pygame.draw.line(
+    #             canvas,
+    #             0,
+    #             (pix_square_size * x, 0),
+    #             (pix_square_size * x, self.window_size),
+    #             width=3,
+    #         )
+    #
+    #     if mode == "human":
+    #         # The following line copies our drawings from `canvas` to the visible window
+    #         self.window.blit(canvas, canvas.get_rect())
+    #         pygame.event.pump()
+    #         pygame.display.update()
+    #
+    #         # We need to ensure that human-rendering occurs at the predefined framerate.
+    #         # The following line will automatically add a delay to keep the framerate stable.
+    #         self.clock.tick(self.metadata["render_fps"])
+    #     else:  # rgb_array
+    #         return np.transpose(
+    #             np.array(pygame.surfarray.pixels3d(canvas)), axes=(1, 0, 2)
+    #         )
 
 
 if __name__ == '__main__':
     diceWorld = DiceWorld(debug=True)
     obs = diceWorld.reset()
+    print(type(obs))
     for k, v in obs.items():
-        print(k, v)
+        print(k, v, type(v))
+    print(diceWorld.observation_space)

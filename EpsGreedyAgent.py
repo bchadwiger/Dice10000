@@ -99,7 +99,7 @@ class EpsGreedyAgent:
 
         # collect if possible
         collect = (self.current_score + self.__get_potential_score() >= self.current_min_collect_score) and \
-                  (np.sum(take) < self.number_dice)
+                  (np.sum(~self.dice_values.astype(bool)) + np.sum(take) < self.number_dice)
 
         if collect and np.random.rand() < self.eps:
             collect = False
