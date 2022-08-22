@@ -54,6 +54,7 @@ class DiceWorld(gym.Env):
 
         self.__intermediate_obs = []  # used to remember observations where no action was possible
         self.__last_action = None  # used to remember last action (for visualization)
+        self.__collected_score = 0  # used to remember last collected score
 
         # Observations are the values of the dice, whether or not they are already taken or not,
         # and the current score
@@ -119,6 +120,9 @@ class DiceWorld(gym.Env):
     def __reset_current_score(self):
         self.__current_score = 0
 
+    def __reset_collected_score(self):
+        self.__collected_score = 0
+
     def __reset_current_min_collect_score(self):
         self.__current_min_collect_score = self.__min_collect_score
 
@@ -169,6 +173,7 @@ class DiceWorld(gym.Env):
 
         self.__reset_last_action()
         self.__reset_intermediate_obs()
+        self.__reset_collected_score()
 
         if not self.is_any_action_possible():
             self.__reset_for_next_players_turn()
@@ -336,6 +341,7 @@ class DiceWorld(gym.Env):
 
     def __collect(self):
         # self._current_reward = self._current_score
+        self.__collected_score = self.__current_score
         self.__players_scores[self.__players_turn] += self.__current_score
         self.__current_min_collect_score = self.__current_score + 50
 
@@ -434,7 +440,7 @@ class DiceWorld(gym.Env):
         players_turn = obs['players_turn']
 
         output_str = ''
-        output_str += '+------------------------------------------------+\n'
+        output_str += '+-------------------------------------------------------+\n'
         output_str += 'Scores\n'
         for i, score in enumerate(players_scores):
             if players_turn[i]:
@@ -465,7 +471,7 @@ class DiceWorld(gym.Env):
 
         output_str += 'Collect:'
         if action[-1]:
-            output_str += 'YES\n'
+            output_str += f'YES ({self.__collected_score})\n'
         else:
             output_str += 'NO\n'
 
@@ -495,6 +501,7 @@ class DiceWorld(gym.Env):
                     output_str += self.visualize_scores_str(obs_)
                     dice_values = obs_['dice_values']
                     output_str += self.visualize_dice_str(dice_values)
+                    output_str += '\n'
                     # if N_intermediate > 1 and i < N_intermediate - 1:
                     output_str += 'No action possible. Advance players\' turn\n'
 

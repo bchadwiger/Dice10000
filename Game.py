@@ -105,7 +105,7 @@ class Game:
     def render(self):
         if self.render_mode == 'ascii':
             text = self.env.render(mode=self.render_mode)
-            print(text)
+            print(text, end='')
         else:
             raise NotImplementedError()
 
