@@ -388,10 +388,10 @@ class DiceWorld(gym.Env):
             return self.__get_obs(), REWARD_INVALID_ACTION, False, None
 
         else:
-            self.__take_dice(dice_to_take)
-
             if fuse:
                 self.__fuse(dice_to_take)
+
+            self.__take_dice(dice_to_take)
 
             if collect:
                 self.__collect()
