@@ -9,21 +9,23 @@ Created based on "Environment Creation",  https://www.gymlibrary.ml/content/envi
 """
 
 import Rules
-from EnvStatus import *
+# from EnvStatus import *
 
 import numpy as np
 import gym
 from gym import spaces
-import pygame
+# import pygame
 import copy
 
+REWARD_NO_ACTION_POSSIBLE = -10
 REWARD_INVALID_ACTION = -10
 REWARD_WON = 10000
 
 
 class DiceWorld(gym.Env):
 
-    def __init__(self, player_names=('Player1', 'Player2'), rules=None, size=5, window_size=512, debug=False):
+    def __init__(self, player_names=('Player1', 'Player2'), rules=None, render_mode=None,
+                 size=5, window_size=512, debug=False):
 
         metadata = {"render_modes": ["human", "ascii"], "render_fps": 0.2}
 
@@ -34,6 +36,10 @@ class DiceWorld(gym.Env):
             self.__rules = Rules.Rules()
         else:
             self.__rules = rules
+
+        self.__render_mode = render_mode
+        self.__render_str = ""  # used to remember text for visualization
+        # self.__visualization_controller = VisualizationController.VisualizationController(mode=self.__render_mode)
 
         self.__number_dice = rules.number_dice
         self.__max_score = rules.max_score
@@ -53,7 +59,7 @@ class DiceWorld(gym.Env):
         self.__players_turn = None  # captures whose player's turn it is
 
         self.__intermediate_obs = []  # used to remember observations where no action was possible
-        self.__last_action = None  # used to remember last action (for visualization)
+        # self.__last_action = None  # used to remember last action (for visualization)
         self.__collected_score = 0  # used to remember last collected score
 
         # Observations are the values of the dice, whether or not they are already taken or not,
@@ -146,8 +152,8 @@ class DiceWorld(gym.Env):
     def __reset_intermediate_obs(self):
         self.__intermediate_obs = []
 
-    def __reset_last_action(self):
-        self.__last_action = None
+    # def __reset_last_action(self):
+    #     self.__last_action = None
 
     def __reset_for_next_players_turn(self):
         self.__reset_current_score()
@@ -159,7 +165,10 @@ class DiceWorld(gym.Env):
             if self.is_any_action_possible():
                 break
 
-            self.__intermediate_obs.append(copy.deepcopy(self.__get_obs()))
+            self.__visualize_observation()
+            self.__visualize_no_action_possible()
+            # self.__intermediate_obs.append(copy.deepcopy(self.__get_obs()))
+            # self.__render_str += self.__get_visualize_observation_str(self.__get_obs())
 
     def reset(self, seed=None, return_info=False, options=None):
         # We need the following line to seed self.np_random
@@ -171,7 +180,7 @@ class DiceWorld(gym.Env):
         self.__reset_current_min_collect_score()
         self.__reset_dice_values()
 
-        self.__reset_last_action()
+        # self.__reset_last_action()
         self.__reset_intermediate_obs()
         self.__reset_collected_score()
 
@@ -179,6 +188,8 @@ class DiceWorld(gym.Env):
             self.__reset_for_next_players_turn()
 
         observation = self.__get_obs()
+        self.__visualize_observation()
+
         return (observation, None) if return_info else observation
 
     def __is_straight(self):
@@ -370,7 +381,6 @@ class DiceWorld(gym.Env):
         """
 
         self.__reset_intermediate_obs()
-        self.__last_action = action
 
         assert isinstance(action, np.ndarray)
         assert action.dtype == bool
@@ -381,9 +391,23 @@ class DiceWorld(gym.Env):
         fuse = action_dict['fuse']
         collect = action_dict['collect']
 
+        self.__visualize_action(action, dice_to_take)
+        # self.__render_str += self.__get_visualize_action_str(action)
+
         if not self.__is_action_valid(action_dict):
+            # self.__render_str += 'No action possible. Advance players\' turn\n'
             self.__reset_current_min_collect_score()
             self.__reset_for_next_players_turn()
+
+            # self.__visualize_intermediate_obs(self.__intermediate_obs)
+
+            # self.__render_str += self.__visualize_observation_str(self.__get_obs())
+            # self.__visualize_scores(self.__get_obs())
+            # self.__render_str += self.__visualize_scores(self.__get_obs())
+            # self.__visualize_dice(self.__dice_values)
+            # self.__render_str += self.__get_visualize_dice_str(self.__dice_values)
+
+            self.__visualize_observation()
 
             return self.__get_obs(), REWARD_INVALID_ACTION, False, None
 
@@ -396,16 +420,20 @@ class DiceWorld(gym.Env):
             if collect:
                 self.__collect()
                 done = self.__players_scores[self.__players_turn] >= self.__max_score
-                self.__reset_for_next_players_turn()
 
+                if done:
+                    self.__visualize_win()
+                    self.__visualize_scores(done)
+
+                    return self.__get_obs(), REWARD_WON, done, None
+
+                self.__reset_for_next_players_turn()
                 current_obs = copy.deepcopy(self.__get_obs())
                 current_score = self.__current_score
 
-                if done:
-                    self.reset()
-                    reward = REWARD_WON
-                else:
-                    reward = current_score
+                reward = current_score
+
+                self.__visualize_observation()
 
                 return current_obs, reward, done, None
 
@@ -416,66 +444,107 @@ class DiceWorld(gym.Env):
                     self.__roll_remaining_dice()
 
                 if self.is_any_action_possible():
+                    # self.__visualization_controller.visualize_scores(self.__get_obs())
+                    # self.__visualization_controller.visualize_dice(self.__dice_values)
+                    self.__visualize_observation()
                     return self.__get_obs(), 0, False, None
                 else:
+                    self.__visualize_observation()
+                    self.__visualize_no_action_possible()
                     self.__reset_current_min_collect_score()
 
-                    self.__intermediate_obs.append(copy.deepcopy(self.__get_obs()))
+                    # self.__intermediate_obs.append(copy.deepcopy(self.__get_obs()))
                     self.__reset_for_next_players_turn()
 
-                    return self.__get_obs(), 0, False, None
+                    # self.__visualize_intermediate_obs(self.__intermediate_obs)
+                    self.__visualize_observation()
+                    # self.__visualization_controller.visualize_scores(self.__get_obs())
+                    # self.__visualization_controller.visualize_dice(self.__dice_values)
 
-    def visualize_dice_str(self, dice_values):
-        output_str = ''
+                    return self.__get_obs(), REWARD_NO_ACTION_POSSIBLE, False, None
+
+    def __visualize_dice(self, dice_values):
+        vis_str = ''
         for value in dice_values:
             if not value:
-                output_str += ' _ '
+                vis_str += ' _ '
             else:
-                output_str += f' {value} '
-        output_str += '\n'
-        return output_str
+                vis_str += f' {value} '
+        vis_str += '\n'
+        self.__render_str += vis_str
 
-    def visualize_scores_str(self, obs):
-        players_scores = obs['players_scores']
-        players_turn = obs['players_turn']
+    def __visualize_scores(self, done=False):
+        players_scores = self.__get_obs()['players_scores']
+        players_turn = self.__get_obs()['players_turn']
 
-        output_str = ''
-        output_str += '+-------------------------------------------------------+\n'
-        output_str += 'Scores\n'
+        vis_str = ''
+        vis_str += '+-------------------------------------------------------+\n'
+        vis_str += 'Scores\n'
         for i, score in enumerate(players_scores):
-            if players_turn[i]:
-                output_str += '>'
+            if players_turn[i] and not done:
+                vis_str += '>'
             else:
-                output_str += ' '
+                vis_str += ' '
             if players_turn[i]:
-                output_str += f"{self.__player_names[i]:>10}: {score:5d} ({self.__current_score})\n"
+                vis_str += f"{self.__player_names[i]:>10}: {score:5d}"
+                if not done:
+                    vis_str += f" ({self.__current_score})\n"
+                else:
+                    vis_str += "\n"
             else:
-                output_str += f"{self.__player_names[i]:>10}: {score:5d} \n"
-        output_str += '\n'
-        return output_str
+                vis_str += f"{self.__player_names[i]:>10}: {score:5d} \n"
+        vis_str += '\n'
+        self.__render_str += vis_str
 
-    def visualize_action_str(self, action):
-        output_str = ''
+    def __visualize_action(self, action, dice_to_take):
+        vis_str = ''
         current_player_name = self.__player_names[np.argmax(self.__players_turn)]
-        output_str += f'ACTION ({current_player_name})\n'
-        output_str += 'Take dice:'
+        vis_str += f'ACTION ({current_player_name})\n'
+        vis_str += 'Take dice:'
         for i, act_i in enumerate(action[:self.__number_dice]):
             if act_i:
-                output_str += f'  {i}'
+                vis_str += f'  {i}'
 
-        output_str += f', Fuse: '
+        vis_str += f', Fuse: '
         if action[-2]:
-            output_str += 'YES, '
+            vis_str += 'YES, '
         else:
-            output_str += 'NO, '
+            vis_str += 'NO, '
 
-        output_str += 'Collect:'
+        vis_str += 'Collect:'
+        # if action[-1]:
+        #     vis_str += f'YES ({self.__collected_score})\n'
+        # else:
+        #     vis_str += f'NO ({self.__current_score + self.__get_score(dice_to_take)})\n'
         if action[-1]:
-            output_str += f'YES ({self.__collected_score})\n'
+            vis_str += 'YES'
         else:
-            output_str += 'NO\n'
+            vis_str += 'NO'
+        vis_str += f' ({self.__current_score + self.__get_score(dice_to_take)})\n'
 
-        return output_str
+        # return vis_str
+        self.__render_str += vis_str
+
+    def __visualize_no_action_possible(self):
+        self.__render_str += 'No action possible. Advance players\' turn\n'
+
+    def __visualize_observation(self):
+        # if visualize_intermediate and self.__intermediate_obs:
+        #     for i, obs_ in enumerate(self.__intermediate_obs):
+        #         self.__visualize_observation(False)
+        self.__visualize_scores()
+        dice_values = self.__get_obs()['dice_values']
+        self.__visualize_dice(dice_values)
+        self.__render_str += '\n'
+        # if N_intermediate > 1 and i < N_intermediate - 1:
+        # output_str += 'No action possible. Advance players\' turn\n'
+
+        # return output_str
+        # self.__render_str += output_str
+
+    def __visualize_win(self):
+        self.__render_str += '+-------------------------------------------------------+\n'
+        self.__render_str += f"PLAYER {np.argmax(self.__players_turn)} WON THE GAME!\n"
 
     def render(self, mode='ascii'):
         """
@@ -490,25 +559,20 @@ class DiceWorld(gym.Env):
             # pop up a window and render
             raise NotImplementedError()
         elif mode == 'ascii':
-            output_str = ''
 
-            if self.__last_action is not None:
-                output_str += self.visualize_action_str(self.__last_action)
+            # if self.__intermediate_obs:
+            #     for i, obs_ in enumerate(self.__intermediate_obs):
+            #         self.__render_str += self.__visualize_observation(obs_)
+            #
+            # # self.__render_str += self.__visualize_scores_str(self.__get_obs())
+            # # self.__render_str += self.__visualize_dice_str(self.__dice_values)
+            #
+            # self.__render_str += '\n'
+            #
 
-            if self.__intermediate_obs:
-                # N_intermediate = len(self.__intermediate_obs)
-                for i, obs_ in enumerate(self.__intermediate_obs):
-                    output_str += self.visualize_scores_str(obs_)
-                    dice_values = obs_['dice_values']
-                    output_str += self.visualize_dice_str(dice_values)
-                    output_str += '\n'
-                    # if N_intermediate > 1 and i < N_intermediate - 1:
-                    output_str += 'No action possible. Advance players\' turn\n'
+            output_str = self.__render_str[:]
+            self.__render_str = ''
 
-            output_str += self.visualize_scores_str(self.__get_obs())
-            output_str += self.visualize_dice_str(self.__dice_values)
-
-            output_str += '\n'
             return output_str
 
         else:

@@ -21,7 +21,7 @@ class Game:
 
         self.render_mode = render_mode
 
-        self.env = DiceWorld.DiceWorld([p.name for p in players], rules)
+        self.env = DiceWorld.DiceWorld([p.name for p in players], rules, render_mode=render_mode)
         self.done = False
 
         self.counter = 0
@@ -45,8 +45,6 @@ class Game:
     #     self.visualize_dice(dice_values)
     #
     #     print()
-
-
 
     def read_and_parse_input(self):
 
@@ -119,7 +117,7 @@ class Game:
             self.counter += 1
 
             if interactive:
-                if self.env.get_players_turn()[0]:
+                if self.env.get_players_turn() == 0:
                     action = self.read_and_parse_input()
                 else:
                     action = self.players[self.env.get_players_turn()].act(obs)
@@ -130,11 +128,10 @@ class Game:
                 action = self.players[self.env.get_players_turn()].act(obs)
 
             obs, rew, done, info = self.env.step(action)
+            # if not done:
             self.render()
 
             self.done = done
-
-        print(f"Player {np.argmax(obs['players_scores'])} won the game")
 
 
 if __name__ == '__main__':
