@@ -51,15 +51,29 @@ class Game:
         print('Which dice (0-based positions) should be taken?')
         while True:
             try:
-                dice_to_take = np.array(list(map(int, input("elements of array:-").strip().split())))
-                break
-            except:
-                pass
-            print('Invalid input. Try again')
+                dice_to_take_raw = np.array(list(map(int, input().strip().split())))
+                dice_to_take = self.encode_dice(dice_to_take_raw)
 
-        print('Fuse two 5s? (y/n)')
-        while True:
-            try:
+                if self.env.is_any_dice_to_take_already_taken(dice_to_take):
+                    print('Cannot take a die that\'s already taken. Choose again!')
+                    continue
+
+                if not self.env.are_dice_to_take_valid(dice_to_take):
+                    print('Some selected dice cannot be taken. Choose again!')
+                    continue
+
+                if not self.env.is_at_least_one_die_taken(dice_to_take):
+                    print('At least one die must be taken. Choose again!')
+                    continue
+
+                break
+
+            except ValueError():
+                print('Invalid input. Try again')
+
+        if self.env.is_fusable(dice_to_take):
+            print('Fuse two 5s? (y/n)')
+            while True:
                 inp = input()
                 if inp in ['y', 'Y']:
                     fuse = True
@@ -67,33 +81,41 @@ class Game:
                 if inp in ['n', 'N']:
                     fuse = False
                     break
-            except:
-                pass
-            print('Invalid input. Try again')
+        else:
+            fuse = False
 
-        print('Collect? (y/n)')
-        while True:
-            try:
-                inp = input()
-                if inp in ['y', 'Y']:
-                    collect = True
-                    break
-                if inp in ['n', 'N']:
-                    collect = False
-                    break
-            except:
-                pass
-            print('Invalid input. Try again')
+        if self.env.is_collectible(dice_to_take, fuse):
+            print(f'Collect? (y/n) ({self.env.get_score(dice_to_take)})')
+            while True:
+                try:
+                    inp = input()
+                    if inp in ['y', 'Y']:
+                        collect = True
+                        break
+                    if inp in ['n', 'N']:
+                        collect = False
+                        break
+                except ValueError():
+                    print('Invalid input. Try again')
+        else:
+            collect = False
 
-        return self.encode_action(dice_to_take, fuse, collect)
+        return self.encode_action(dice_to_take_raw, fuse, collect)
+
+    def encode_dice(self, dice_to_take):
+        action_die = np.zeros(self.rules.number_dice, dtype=bool)
+        for die_idx in dice_to_take:
+            action_die[die_idx] = True
+        return action_die
 
     def encode_action(self, dice_to_take, fuse, collect):
         if (dice_to_take > self.rules.number_dice).any():
             return np.zeros(self.rules.number_dice + 2, dtype=bool)  # default invalid action
 
         action = np.zeros(self.rules.number_dice+2, dtype=bool)
-        for die in dice_to_take:
-            action[die] = 1
+
+        action[:self.rules.number_dice] = self.encode_dice(dice_to_take)
+
         if fuse:
             action[self.rules.number_dice] = True
         if collect:
@@ -143,4 +165,4 @@ if __name__ == '__main__':
     ]
 
     game = Game(players, rules)
-    game.play(step_by_step=False, interactive=False)
+    game.play(step_by_step=False, interactive=True)

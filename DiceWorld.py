@@ -39,7 +39,6 @@ class DiceWorld(gym.Env):
 
         self.__render_mode = render_mode
         self.__render_str = ""  # used to remember text for visualization
-        # self.__visualization_controller = VisualizationController.VisualizationController(mode=self.__render_mode)
 
         self.__number_dice = rules.number_dice
         self.__max_score = rules.max_score
@@ -59,7 +58,6 @@ class DiceWorld(gym.Env):
         self.__players_turn = None  # captures whose player's turn it is
 
         self.__intermediate_obs = []  # used to remember observations where no action was possible
-        # self.__last_action = None  # used to remember last action (for visualization)
         self.__collected_score = 0  # used to remember last collected score
 
         # Observations are the values of the dice, whether or not they are already taken or not,
@@ -87,19 +85,6 @@ class DiceWorld(gym.Env):
         """
         self.window = None
         self.clock = None
-
-    # def set_values(self, values):
-    #     if isinstance(values, list) or isinstance(values, tuple):
-    #         assert len(values) == self.__number_dice
-    #         self.__dice_values = np.array(values)
-    #     elif isinstance(values, np.array):
-    #         assert values.shape[0] == self.__number_dice
-    #         self.__dice_values = values
-    #     else:
-    #         raise ValueError('Can only set __dice_values with list, tuple or np.array')
-    #
-    # def get_values(self):
-    #     return self.__dice_values
 
     def get_players_turn(self):
         return np.argmax(self.__players_turn)
@@ -152,9 +137,6 @@ class DiceWorld(gym.Env):
     def __reset_intermediate_obs(self):
         self.__intermediate_obs = []
 
-    # def __reset_last_action(self):
-    #     self.__last_action = None
-
     def __reset_for_next_players_turn(self):
         self.__reset_current_score()
 
@@ -167,8 +149,6 @@ class DiceWorld(gym.Env):
 
             self.__visualize_observation()
             self.__visualize_no_action_possible()
-            # self.__intermediate_obs.append(copy.deepcopy(self.__get_obs()))
-            # self.__render_str += self.__get_visualize_observation_str(self.__get_obs())
 
     def reset(self, seed=None, return_info=False, options=None):
         # We need the following line to seed self.np_random
@@ -180,7 +160,6 @@ class DiceWorld(gym.Env):
         self.__reset_current_min_collect_score()
         self.__reset_dice_values()
 
-        # self.__reset_last_action()
         self.__reset_intermediate_obs()
         self.__reset_collected_score()
 
@@ -220,69 +199,73 @@ class DiceWorld(gym.Env):
         assert 0 <= pos <= self.__number_dice - 1
         return (self.__dice_values[pos] == 1) or (self.__dice_values[pos] == 5)
 
-    def __is_fusable(self, dice_to_take):
+    def is_fusable(self, dice_to_take):
         # check that exactly two 5s are in the dice that are not taken,
         # and that both of these should be taken in the current step
         idxs_dice_5 = self.__dice_values == 5
         return (np.sum(idxs_dice_5) == 2) and (np.sum(idxs_dice_5 & dice_to_take) == 2)
 
-    def __is_action_valid(self, action_dict):
-        """
-        Check whether an action is valid for the current state. For interpretation of action input, see function step.
-        :param action:
-        :return:
-        """
-        dice_to_take = action_dict['dice_to_take']
-        fuse = action_dict['fuse']
-        collect = action_dict['collect']
+    def is_any_dice_to_take_already_taken(self, dice_to_take):
+        return (dice_to_take & self.__dice_taken()).any()
 
-        # check if any dice that are already taken should be taken
-        if (dice_to_take & self.__dice_taken()).any():
-            if self.debug:
-                print('Invalid action: Taken dice must not be taken again.')
+    def is_at_least_one_die_taken(self, dice_to_take):
+        return np.sum(dice_to_take) > 0
+
+    def are_all_dice_taken_after_take(self, dice_to_take):
+        if np.sum(dice_to_take | self.__dice_taken()) == self.__number_dice:
+            return True
+
+    def are_dice_to_take_valid(self, dice_to_take):
+        if not self.is_at_least_one_die_taken(dice_to_take):
             return False
 
-        fused = False
-        # if action contains fuse, check if it is allowed
-        if fuse:
-            if not self.__is_fusable(dice_to_take):
-                if self.debug:
-                    print('Invalid action: Cannot fuse if number of dice that are 5 is not equal two and if not both'
-                          'of these dice are taken in this step.')
-                return False
-            fused = True
-
-        # check that dice that should be taken are valid, i.e., each die is either 1, 5, or part of a "Pasch", i.e.,
-        # triplet, quadruplet, ..., or part of a straight (1-2-3-...-self.__face_high)
         for pos, take_die in enumerate(dice_to_take):
             if take_die:
                 if not self.__is_1_or_5(pos):
                     if not (self.__is_part_of_multiple(pos) and self.__is_to_take_multiple(pos, dice_to_take)):
                         if not (self.__is_straight() and self.__is_to_take_straight(dice_to_take)):
-                            if self.debug:
-                                print('Invalid action: Cannot take die if it is not equal to 1 or 5, part of a '
-                                      'triplet, quadruplet, etc., or a straight')
                             return False
+        return True
+
+    def is_collectible(self, dice_to_take, fuse):
+        if not self.is_score_sufficient_to_take(dice_to_take):
+            return False
+        else:
+            if self.are_all_dice_taken_after_take(dice_to_take) and (not self.is_fusable() or not fuse):
+                return False
+            else:
+                return True
+
+    def is_score_sufficient_to_take(self, dice_to_take):
+        if self.__current_score + self.get_score(dice_to_take) >= self.__current_min_collect_score:
+            return True
+
+    def is_action_valid(self, dice_to_take, fuse, collect):
+        """
+        Check whether an action is valid for the current state. For interpretation of action input, see function step.
+        :param action:
+        :return:
+        """
+
+        if self.is_any_dice_to_take_already_taken(dice_to_take):
+            return False
+
+        if not self.are_dice_to_take_valid(dice_to_take):
+            return False
+
+        if not self.is_at_least_one_die_taken(dice_to_take):
+            return False
+
+        fused = False
+        if fuse:
+            if not self.is_fusable(dice_to_take):
+                return False
+            fused = True
 
         # check that at least one die is taken and in this step, and not all dice are taken,
         # otherwise cannot collect points
-        if collect:
-            # at least one die must be taken
-            if np.sum(dice_to_take) < 1:
-                if self.debug:
-                    print('Invalid Action: At least one die must be taken per round.')
-                return False
-
-            # cannot collect points if all dice are taken
-            if not fused and np.sum(dice_to_take | self.__dice_taken()) == self.__number_dice:
-                if self.debug:
-                    print('Invalid action: Cannot collect if all dice are taken. In this case the turn continues.')
-                return False
-
-            if not self.__current_score + self.__get_score(dice_to_take) >= self.__current_min_collect_score:
-                if self.debug:
-                    print('Invalid action: Cannot collect if current_score is not bigger than minimum_collect_score')
-                return False
+        if collect and not self.is_collectible(dice_to_take, fused):
+            return False
 
         return True
 
@@ -299,12 +282,12 @@ class DiceWorld(gym.Env):
         assert np.sum(dice_to_take) > 0
 
         # get score of dice that should be taken in this step
-        self.__current_score += self.__get_score(dice_to_take)
+        self.__current_score += self.get_score(dice_to_take)
 
         # set taken dice to 0 indicating that the respective die is taken
         self.__dice_values[dice_to_take] = 0
 
-    def __get_score(self, dice_to_take):
+    def get_score(self, dice_to_take):
         assert dice_to_take.shape[0] == self.__number_dice
 
         # first check if a special pattern is present
@@ -392,21 +375,9 @@ class DiceWorld(gym.Env):
         collect = action_dict['collect']
 
         self.__visualize_action(action, dice_to_take)
-        # self.__render_str += self.__get_visualize_action_str(action)
-
-        if not self.__is_action_valid(action_dict):
-            # self.__render_str += 'No action possible. Advance players\' turn\n'
+        if not self.is_action_valid(dice_to_take, fuse, collect):
             self.__reset_current_min_collect_score()
             self.__reset_for_next_players_turn()
-
-            # self.__visualize_intermediate_obs(self.__intermediate_obs)
-
-            # self.__render_str += self.__visualize_observation_str(self.__get_obs())
-            # self.__visualize_scores(self.__get_obs())
-            # self.__render_str += self.__visualize_scores(self.__get_obs())
-            # self.__visualize_dice(self.__dice_values)
-            # self.__render_str += self.__get_visualize_dice_str(self.__dice_values)
-
             self.__visualize_observation()
 
             return self.__get_obs(), REWARD_INVALID_ACTION, False, None
@@ -444,8 +415,6 @@ class DiceWorld(gym.Env):
                     self.__roll_remaining_dice()
 
                 if self.is_any_action_possible():
-                    # self.__visualization_controller.visualize_scores(self.__get_obs())
-                    # self.__visualization_controller.visualize_dice(self.__dice_values)
                     self.__visualize_observation()
                     return self.__get_obs(), 0, False, None
                 else:
@@ -453,14 +422,9 @@ class DiceWorld(gym.Env):
                     self.__visualize_no_action_possible()
                     self.__reset_current_min_collect_score()
 
-                    # self.__intermediate_obs.append(copy.deepcopy(self.__get_obs()))
                     self.__reset_for_next_players_turn()
 
-                    # self.__visualize_intermediate_obs(self.__intermediate_obs)
                     self.__visualize_observation()
-                    # self.__visualization_controller.visualize_scores(self.__get_obs())
-                    # self.__visualization_controller.visualize_dice(self.__dice_values)
-
                     return self.__get_obs(), REWARD_NO_ACTION_POSSIBLE, False, None
 
     def __visualize_dice(self, dice_values):
@@ -512,15 +476,12 @@ class DiceWorld(gym.Env):
             vis_str += 'NO, '
 
         vis_str += 'Collect:'
-        # if action[-1]:
-        #     vis_str += f'YES ({self.__collected_score})\n'
-        # else:
-        #     vis_str += f'NO ({self.__current_score + self.__get_score(dice_to_take)})\n'
+
         if action[-1]:
-            vis_str += 'YES'
+            vis_str += ' YES'
         else:
-            vis_str += 'NO'
-        vis_str += f' ({self.__current_score + self.__get_score(dice_to_take)})\n'
+            vis_str += ' NO'
+        vis_str += f' ({self.__current_score + self.get_score(dice_to_take)})\n'
 
         # return vis_str
         self.__render_str += vis_str
@@ -529,18 +490,10 @@ class DiceWorld(gym.Env):
         self.__render_str += 'No action possible. Advance players\' turn\n'
 
     def __visualize_observation(self):
-        # if visualize_intermediate and self.__intermediate_obs:
-        #     for i, obs_ in enumerate(self.__intermediate_obs):
-        #         self.__visualize_observation(False)
         self.__visualize_scores()
         dice_values = self.__get_obs()['dice_values']
         self.__visualize_dice(dice_values)
         self.__render_str += '\n'
-        # if N_intermediate > 1 and i < N_intermediate - 1:
-        # output_str += 'No action possible. Advance players\' turn\n'
-
-        # return output_str
-        # self.__render_str += output_str
 
     def __visualize_win(self):
         self.__render_str += '+-------------------------------------------------------+\n'
@@ -559,16 +512,6 @@ class DiceWorld(gym.Env):
             # pop up a window and render
             raise NotImplementedError()
         elif mode == 'ascii':
-
-            # if self.__intermediate_obs:
-            #     for i, obs_ in enumerate(self.__intermediate_obs):
-            #         self.__render_str += self.__visualize_observation(obs_)
-            #
-            # # self.__render_str += self.__visualize_scores_str(self.__get_obs())
-            # # self.__render_str += self.__visualize_dice_str(self.__dice_values)
-            #
-            # self.__render_str += '\n'
-            #
 
             output_str = self.__render_str[:]
             self.__render_str = ''
@@ -648,3 +591,4 @@ if __name__ == '__main__':
     for k, v in obs.items():
         print(k, v, type(v))
     print(diceWorld.observation_space)
+    
