@@ -85,7 +85,7 @@ class Game:
             fuse = False
 
         if self.env.is_collectible(dice_to_take, fuse):
-            print(f'Collect? (y/n) ({self.env.get_score(dice_to_take)})')
+            print(f'Collect? (y/n) ({self.env.get_score(dice_to_take) + self.env.get_current_score()})')
             while True:
                 try:
                     inp = input()
@@ -122,10 +122,18 @@ class Game:
             action[self.rules.number_dice+1] = True
         return action
 
-    def render(self):
+    def render(self, step_by_step=False):
         if self.render_mode == 'ascii':
             text = self.env.render(mode=self.render_mode)
-            print(text, end='')
+            if not step_by_step:
+                print(text, end='')
+            else:
+                for line in text.splitlines():
+                    if line.startswith(self.env.str_no_action_possible):
+                        print(line)
+                        _ = input('Press any key to continue')
+                    else:
+                        print(line)
         else:
             raise NotImplementedError()
 
@@ -143,16 +151,15 @@ class Game:
                     action = self.read_and_parse_input()
                 else:
                     action = self.players[self.env.get_players_turn()].act(obs)
-            elif step_by_step:
-                _ = input('Press any key')
-                action = self.players[self.env.get_players_turn()].act(obs)
             else:
                 action = self.players[self.env.get_players_turn()].act(obs)
 
             obs, rew, done, info = self.env.step(action)
             # if not done:
-            self.render()
+            self.render(step_by_step)
 
+            if step_by_step:
+                _ = input('Press any key to continue')
             self.done = done
 
 
@@ -165,4 +172,4 @@ if __name__ == '__main__':
     ]
 
     game = Game(players, rules)
-    game.play(step_by_step=False, interactive=True)
+    game.play(step_by_step=True, interactive=True)

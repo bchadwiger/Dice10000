@@ -39,6 +39,7 @@ class DiceWorld(gym.Env):
 
         self.__render_mode = render_mode
         self.__render_str = ""  # used to remember text for visualization
+        self.str_no_action_possible = 'No action possible. Advance players\' turn'
 
         self.__number_dice = rules.number_dice
         self.__max_score = rules.max_score
@@ -97,6 +98,9 @@ class DiceWorld(gym.Env):
             'players_scores': self.__players_scores,
             'players_turn': self.__players_turn
         }
+
+    def get_current_score(self):
+        return self.__current_score
 
     def __dice_taken(self):
         return self.__dice_values == 0
@@ -164,6 +168,8 @@ class DiceWorld(gym.Env):
         self.__reset_collected_score()
 
         if not self.is_any_action_possible():
+            self.__visualize_observation()
+            self.__visualize_no_action_possible()
             self.__reset_for_next_players_turn()
 
         observation = self.__get_obs()
@@ -231,7 +237,7 @@ class DiceWorld(gym.Env):
         if not self.is_score_sufficient_to_take(dice_to_take):
             return False
         else:
-            if self.are_all_dice_taken_after_take(dice_to_take) and (not self.is_fusable() or not fuse):
+            if self.are_all_dice_taken_after_take(dice_to_take) and (not self.is_fusable(dice_to_take) or not fuse):
                 return False
             else:
                 return True
@@ -435,6 +441,7 @@ class DiceWorld(gym.Env):
             else:
                 vis_str += f' {value} '
         vis_str += '\n'
+
         self.__render_str += vis_str
 
     def __visualize_scores(self, done=False):
@@ -442,7 +449,7 @@ class DiceWorld(gym.Env):
         players_turn = self.__get_obs()['players_turn']
 
         vis_str = ''
-        vis_str += '+-------------------------------------------------------+\n'
+        vis_str += '+----------------------------------------------------------+\n'
         vis_str += 'Scores\n'
         for i, score in enumerate(players_scores):
             if players_turn[i] and not done:
@@ -483,11 +490,10 @@ class DiceWorld(gym.Env):
             vis_str += ' NO'
         vis_str += f' ({self.__current_score + self.get_score(dice_to_take)})\n'
 
-        # return vis_str
         self.__render_str += vis_str
 
     def __visualize_no_action_possible(self):
-        self.__render_str += 'No action possible. Advance players\' turn\n'
+        self.__render_str += self.str_no_action_possible + '\n'
 
     def __visualize_observation(self):
         self.__visualize_scores()
@@ -496,7 +502,7 @@ class DiceWorld(gym.Env):
         self.__render_str += '\n'
 
     def __visualize_win(self):
-        self.__render_str += '+-------------------------------------------------------+\n'
+        self.__render_str += '+----------------------------------------------------------+\n'
         self.__render_str += f"PLAYER {np.argmax(self.__players_turn)} WON THE GAME!\n"
 
     def render(self, mode='ascii'):
@@ -591,4 +597,3 @@ if __name__ == '__main__':
     for k, v in obs.items():
         print(k, v, type(v))
     print(diceWorld.observation_space)
-    
