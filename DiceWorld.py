@@ -24,8 +24,7 @@ REWARD_WON = 10000
 
 class DiceWorld(gym.Env):
 
-    def __init__(self, player_names=('Player1', 'Player2'), rules=None, render_mode=None,
-                 size=5, window_size=512, debug=False):
+    def __init__(self, player_names=('Player1', 'Player2'), rules=None, size=5, window_size=512, debug=False):
 
         metadata = {"render_modes": ["human", "ascii"], "render_fps": 0.2}
 
@@ -37,7 +36,7 @@ class DiceWorld(gym.Env):
         else:
             self.__rules = rules
 
-        self.__render_mode = render_mode
+        # self.__render_mode = render_mode
         self.__render_str = ""  # used to remember text for visualization
         self.str_no_action_possible = 'No action possible. Advance players\' turn'
 
@@ -89,6 +88,9 @@ class DiceWorld(gym.Env):
 
     def get_players_turn(self):
         return np.argmax(self.__players_turn)
+
+    def get_scores(self):
+        return self.__players_scores
 
     def __get_obs(self):
         return {

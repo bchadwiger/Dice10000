@@ -1,11 +1,14 @@
 import DiceWorld
 import Player
 import Rules
-from EnvStatus import *
 
 import art
 
 import numpy as np
+import copy
+import time
+
+import matplotlib.pyplot as plt
 
 
 class Game:
@@ -21,30 +24,9 @@ class Game:
 
         self.render_mode = render_mode
 
-        self.env = DiceWorld.DiceWorld([p.name for p in players], rules, render_mode=render_mode)
-        self.done = False
+        self.env = DiceWorld.DiceWorld([p.name for p in players], rules)
 
         self.counter = 0
-
-    # def visualize_obs(self, obs, info=None, done=False):
-    #     if info:
-    #         if 'intermediate_obs' in info and info['intermediate_obs']:
-    #             N_intermediate = len(info['intermediate_obs'])
-    #             for i, obs_ in enumerate(info['intermediate_obs']):
-    #                 self.visualize_scores(obs_, None)
-    #                 dice_values = obs_['dice_values']
-    #                 self.visualize_dice(dice_values)
-    #                 if N_intermediate > 1 and i < N_intermediate - 1:
-    #                     print('No action possible. Advance players\' turn')
-    #
-    #         if 'description' in info:
-    #             print(info['description'])
-    #
-    #     dice_values = obs['dice_values']
-    #     self.visualize_scores(obs, info)
-    #     self.visualize_dice(dice_values)
-    #
-    #     print()
 
     def read_and_parse_input(self):
 
@@ -123,7 +105,9 @@ class Game:
         return action
 
     def render(self, step_by_step=False):
-        if self.render_mode == 'ascii':
+        if self.render_mode is None:
+            return
+        elif self.render_mode == 'ascii':
             text = self.env.render(mode=self.render_mode)
             if not step_by_step:
                 print(text, end='')
@@ -138,38 +122,101 @@ class Game:
             raise NotImplementedError()
 
     def play(self, interactive=False, step_by_step=False):
-        art.tprint('Dice 10000', font='random')
+        if self.render_mode == 'ascii':
+            art.tprint('Dice 10000', font='random')
+
+        dict_obs = {i: [] for i in range(self.number_players)}
+        dict_actions = {i: [] for i in range(self.number_players)}
+        dict_rewards = {i: [] for i in range(self.number_players)}
+        winner = None
 
         obs, info = self.env.reset(return_info=True)
+        dict_obs[self.env.get_players_turn()].append(copy.deepcopy(obs))
         self.render()
 
-        while not self.done:
+        while True:
             self.counter += 1
+
+            players_turn = self.env.get_players_turn()
 
             if interactive:
                 if self.env.get_players_turn() == 0:
                     action = self.read_and_parse_input()
                 else:
-                    action = self.players[self.env.get_players_turn()].act(obs)
+                    action = self.players[players_turn].compute_action(obs)
             else:
-                action = self.players[self.env.get_players_turn()].act(obs)
+                action = self.players[players_turn].compute_action(obs)
+
+            dict_actions[players_turn].append(copy.deepcopy(action))
 
             obs, rew, done, info = self.env.step(action)
-            # if not done:
+            dict_rewards[players_turn].append(rew)
+            dict_obs[players_turn].append(copy.deepcopy(obs))
             self.render(step_by_step)
+
+            if done:
+                winner = self.env.get_players_turn()
+                scores = self.env.get_scores()
+                assert (scores[winner] > scores[:winner]).all()
+                assert (scores[winner] > scores[winner+1:]).all()
+                break
 
             if step_by_step:
                 _ = input('Press any key to continue')
-            self.done = done
+
+        return winner#, dict_obs, dict_actions, dict_rewards
 
 
 if __name__ == '__main__':
     rules = Rules.Rules()
+    # player_names = ['Player1', 'Player2', 'Player3', 'Player4', 'Player5', 'Player6']
+    # players_eps = [0, 0.05, 0.1, 0.2, 0.3, 0.5]
+    player_eps = np.arange(0, 0.2, 0.01)
+    player_names = [f'Player{i}' for i in range(player_eps.shape[0])]
+    N = 10000
+    wins = np.zeros([len(player_names), N])
+    game_runtimes = np.zeros([N])
 
-    players = [
-        Player.Player('Player1', 'greedy', rules=rules, eps=0),
-        Player.Player('Player2', 'greedy', rules=rules, eps=0.3)
-    ]
+    players = [Player.Player(player_names[i], 'greedy', rules=rules, eps=player_eps[i])
+               for i in range(len(player_names))]
 
-    game = Game(players, rules)
-    game.play(step_by_step=True, interactive=True)
+    t0 = time.time()
+    prev_time = t0
+
+    for i in range(N):
+        print(f'\r{i+1}/{N}', end='')
+        # winner, dict_obs, dict_actions, dict_rewards = game.play(step_by_step=False, interactive=False)
+        game = Game(players, rules, render_mode=None)
+        winner = game.play(step_by_step=False, interactive=False)
+        # wins[winner] += 1
+        wins[winner, i] = 1
+        curr_time = time.time()
+        game_runtimes[i] = curr_time - prev_time
+        prev_time = curr_time
+
+    print(f'Statistics after {N} games:\n:')
+    for i in range(len(players)):
+        wins_i = np.sum(wins[i])
+        print(f'{player_names[i]}: {wins_i} wins ({wins_i/N*100:.3f}%)')
+
+    plt.figure()
+    plt.plot(game_runtimes*1000)
+    plt.ylabel('Elapsed time [ms]')
+    plt.xlabel('Number of simulated games')
+    plt.grid()
+
+    plt.figure()
+    for i in range(len(player_names)):
+        plt.plot(np.cumsum(wins[i]), label=f'eps={player_eps[i]}')
+    plt.xlabel('Number of simulated games')
+    plt.ylabel('Cumulated wins')
+    plt.grid()
+    plt.legend()
+    plt.show()
+
+    #
+    # print(dict_obs)
+    # print('-------------')
+    # print(dict_actions)
+    # print('-------------')
+    # print(dict_rewards)

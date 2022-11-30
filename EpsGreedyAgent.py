@@ -66,7 +66,7 @@ class EpsGreedyAgent:
 
         return potential_score
 
-    def act(self, obs):
+    def compute_action(self, obs):
         """
         Generates an action for a given observation.
 
