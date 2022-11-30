@@ -208,10 +208,10 @@ class DiceWorld(gym.Env):
         return (self.__dice_values[pos] == 1) or (self.__dice_values[pos] == 5)
 
     def is_fusable(self, dice_to_take):
-        # check that exactly two 5s are in the dice that are not taken,
-        # and that both of these should be taken in the current step
+        # check that at least two 5s are in the dice that are not taken,
+        # and that two of these should be taken in the current step
         idxs_dice_5 = self.__dice_values == 5
-        return (np.sum(idxs_dice_5) == 2) and (np.sum(idxs_dice_5 & dice_to_take) == 2)
+        return (np.sum(idxs_dice_5) >= 2) and (np.sum(idxs_dice_5 & dice_to_take) == 2)
 
     def is_any_dice_to_take_already_taken(self, dice_to_take):
         return (dice_to_take & self.__dice_taken()).any()
@@ -337,9 +337,9 @@ class DiceWorld(gym.Env):
 
     def __fuse(self, dice_to_take):
         # fuse the two 5s dice, i.e. change one die to 1 and only take this one (we use the first one w.l.o.g.)
-        idxs_dice_5 = self.__dice_values == 5
-        self.__dice_values[idxs_dice_5][0] = 1
-        dice_to_take[idxs_dice_5][1] = 0
+        idxs_dice_5 = np.nonzero(self.__dice_values == 5)[0]
+        self.__dice_values[idxs_dice_5[0]] = 1
+        dice_to_take[idxs_dice_5[1]] = 0
 
     def __collect(self):
         # self._current_reward = self._current_score
