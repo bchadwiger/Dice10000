@@ -4,11 +4,12 @@ import Rules
 import numpy as np
 
 
-class EpsGreedyAgent(Agent):
-    def __init__(self, rules, eps=0, **kwargs):
+class ScoreWeightedEpsGreedyAgent(Agent):
+    def __init__(self, rules, eps=0,  half_life_score=2000, **kwargs):
         super().__init__(rules)
 
         self.eps = eps
+        self.half_life_score = half_life_score
 
     def compute_action(self, obs):
         """
@@ -41,11 +42,21 @@ class EpsGreedyAgent(Agent):
         take[self.dice_values == 1] = 1
         take[self.dice_values == 5] = 1
 
-        # collect if possible
-        collect = (self.current_score + self.get_potential_score() >= self.current_min_collect_score) and \
-                  (np.sum(~self.dice_values.astype(bool)) + np.sum(take) < self.number_dice)
+        potential_score = self.get_potential_score()
+        potential_take_score = self.current_score + potential_score
 
-        if collect and np.random.rand() < self.eps:
-            collect = False
+        # collect if possible
+        collect = (potential_take_score >= self.current_min_collect_score) and \
+                  (np.sum(~self.dice_values.astype(bool)) + np.sum(take) < self.number_dice)
+        #
+        # if collect and np.random.rand() < self.eps:
+        #     collect = False
+
+        if collect:
+            # model probability for gambling:
+            # p = eps * 2^(-pot_score / half_life_score)
+            prob_gamble = self.eps * 2**(-potential_take_score/self.half_life_score)
+            if np.random.rand() < prob_gamble:
+                collect = False
 
         return np.concatenate([take, np.array([0]), np.array([collect])]).astype(bool)

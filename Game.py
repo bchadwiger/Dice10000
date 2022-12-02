@@ -1,3 +1,4 @@
+import argparse
 import DiceWorld
 import Player
 import Rules
@@ -168,55 +169,15 @@ class Game:
 
 
 if __name__ == '__main__':
+    # parser = argparse.ArgumentParser('Ga')
+
     rules = Rules.Rules()
-    # player_names = ['Player1', 'Player2', 'Player3', 'Player4', 'Player5', 'Player6']
-    # players_eps = [0, 0.05, 0.1, 0.2, 0.3, 0.5]
-    player_eps = np.arange(0, 0.2, 0.01)
-    player_names = [f'Player{i}' for i in range(player_eps.shape[0])]
-    N = 10000
-    wins = np.zeros([len(player_names), N])
-    game_runtimes = np.zeros([N])
 
-    players = [Player.Player(player_names[i], 'greedy', rules=rules, eps=player_eps[i])
-               for i in range(len(player_names))]
+    players = [
+        Player.Player('Player1', 'greedy', rules=rules, eps=0),
+        Player.Player('Player2', 'greedy', rules=rules, eps=0.3)
+    ]
 
-    t0 = time.time()
-    prev_time = t0
-
-    for i in range(N):
-        print(f'\r{i+1}/{N}', end='')
-        # winner, dict_obs, dict_actions, dict_rewards = game.play(step_by_step=False, interactive=False)
-        game = Game(players, rules, render_mode=None)
-        winner = game.play(step_by_step=False, interactive=False)
-        # wins[winner] += 1
-        wins[winner, i] = 1
-        curr_time = time.time()
-        game_runtimes[i] = curr_time - prev_time
-        prev_time = curr_time
-
-    print(f'Statistics after {N} games:\n:')
-    for i in range(len(players)):
-        wins_i = np.sum(wins[i])
-        print(f'{player_names[i]}: {wins_i} wins ({wins_i/N*100:.3f}%)')
-
-    plt.figure()
-    plt.plot(game_runtimes*1000)
-    plt.ylabel('Elapsed time [ms]')
-    plt.xlabel('Number of simulated games')
-    plt.grid()
-
-    plt.figure()
-    for i in range(len(player_names)):
-        plt.plot(np.cumsum(wins[i]), label=f'eps={player_eps[i]}')
-    plt.xlabel('Number of simulated games')
-    plt.ylabel('Cumulated wins')
-    plt.grid()
-    plt.legend()
-    plt.show()
-
-    #
-    # print(dict_obs)
-    # print('-------------')
-    # print(dict_actions)
-    # print('-------------')
-    # print(dict_rewards)
+    game = Game(players, rules)
+    game.play(step_by_step=False, interactive=False)
+    

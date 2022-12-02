@@ -1,7 +1,9 @@
-import EpsGreedyAgent
+from EpsGreedyAgent import EpsGreedyAgent
+from ScoreWeightedEpsGreedyAgent import ScoreWeightedEpsGreedyAgent
 
 implemented_agents = {
-    'greedy': EpsGreedyAgent.EpsGreedyAgent,
+    'greedy': EpsGreedyAgent,
+    'score_weighted': ScoreWeightedEpsGreedyAgent
 }
 
 
