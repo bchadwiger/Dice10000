@@ -47,10 +47,10 @@ rules = Rules()
 #            for i in range(agent_eps.shape[0]) for j in range(agent_half_life.shape[0])]
 
 players = [
+    # Player('Player1', 'optimal_expected', rules=rules, log_path=os.path.join(path, 'log_actions.log')),
     Player('Player1', 'optimal_expected', rules=rules),
     Player('Player2', 'greedy', rules=rules, eps=0.),
-    Player('Player3', 'greedy', rules=rules, eps=0.),
-    Player('Player4', 'greedy', rules=rules, eps=0.3)
+    # Player('Player3', 'greedy', rules=rules, eps=0.3)
 ]
 
 game = Game(players, rules)

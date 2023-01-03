@@ -1,4 +1,5 @@
 import math
+import os.path
 
 from Agent import Agent
 import AgentUtilities
@@ -14,13 +15,20 @@ import time
 
 
 class OptimalExpectedValueAgent(Agent):
-    def __init__(self, rules=Rules.Rules(), **kwargs):
+    def __init__(self, rules=Rules.Rules(), log_path=None, log_top_actions=None, **kwargs):
         super().__init__(rules)
 
         self.lut_factorial = self.build_lut_factorial()
         self.list_lookup_tables_additional_potential_scores = self.build_potential_additional_score_lookup_tables()
         self.A, self.weighted_immediate_scores, self.weight_current_score = self.build_system_of_equations_parameters()
         self.expected_additional_scores_when_rethrowing_n_dice = self.solve_linear_system_of_equations()
+        self.log_path = log_path
+        if self.log_path is not None:
+            self.log = True
+            self.logfile = open(self.log_path, "w")
+        else:
+            self.log = False
+        self.log_top_actions = log_top_actions
 
     def compute_action(self, obs):
         """
@@ -39,14 +47,23 @@ class OptimalExpectedValueAgent(Agent):
         self.update_observations(obs)
         face_counts = AgentUtilities.get_face_counts(self.dice_values, self.rules)
 
-        n_remaining = np.sum(self.dice_values > 0)
+        if self.log:
+            self.logfile.write('==========================================\n\n')
+            self.logfile.write(f'Current score: {self.current_score}\n')
+            self.logfile.write('Players\' scores:\n')
+            for ps in self.players_scores:
+                self.logfile.write(f'    {ps}\n')
+            self.logfile.write(f'Current minimal score for collecting: {self.current_min_collect_score}\n\n')
+            self.log_dice_values()
 
-        if n_remaining == self.number_dice and AgentUtilities.is_straight(face_counts):
+        n_remaining_before_take = np.sum(self.dice_values > 0)
+
+        if n_remaining_before_take == self.number_dice and AgentUtilities.is_straight(face_counts):
             # take straight
             return np.array([1] * self.number_dice + [0, 0], dtype=bool)
 
         list_take_and_fuse = []
-        action_priority_queue = []  # queue.PriorityQueue()
+        actions_dict = {}
 
         n_multiples = np.sum(face_counts[1:] >= self.min_multiple)
         if n_multiples > 0:
@@ -55,19 +72,18 @@ class OptimalExpectedValueAgent(Agent):
                     take = np.zeros(self.number_dice, dtype=bool)
                     take[self.dice_values == val] = True
                     list_take_and_fuse.append(np.r_[take, False])
-                    # n_remaining = np.sum(self.dice_values > 0) - np.sum(take)
 
         if 0 < face_counts[1] < self.min_multiple:
             for i in range(1, face_counts[1]+1):
                 take = np.zeros(self.number_dice, dtype=bool)
-                idxs = np.nonzero(self.dice_values == 1)[:i]
+                idxs = np.nonzero(self.dice_values == 1)[0][:i]
                 take[idxs] = True
                 list_take_and_fuse.append(np.r_[take, False])
 
         if 0 < face_counts[5] < self.min_multiple:
             for i in range(1, face_counts[5]+1):
                 take = np.zeros(self.number_dice, dtype=bool)
-                idxs = np.nonzero(self.dice_values == 5)[:i]
+                idxs = np.nonzero(self.dice_values == 5)[0][:i]
                 take[idxs] = True
                 list_take_and_fuse.append(np.r_[take, False])
                 if i == 2:
@@ -89,23 +105,78 @@ class OptimalExpectedValueAgent(Agent):
                 score_when_taking = self.get_score_when_taking(take_and_fuse[:self.number_dice])
                 overall_score_when_taking = self.current_score + score_when_taking
 
+                n_remaining_take_i = self.get_n_remaining(take_and_fuse)
+
                 is_collectible = False
-                if overall_score_when_taking >= self.current_min_collect_score:
+                if n_remaining_take_i > 0 and overall_score_when_taking >= self.current_min_collect_score:
                     is_collectible = True
 
                 if not is_collectible:
-                    action_priority_queue.append((-overall_score_when_taking, np.r_[take_and_fuse, False]))
+                    action = tuple(np.r_[take_and_fuse, False])
+                    if action not in actions_dict:
+                        actions_dict[action] = overall_score_when_taking + \
+                                               self.get_expected_additional_score_for_n_dice_remaining(
+                                                   n_remaining_take_i)
                 else:
-                    expected_score_when_rethrowing = self.get_expected_score_when_rethrowing(overall_score_when_taking,
-                                                                                             take_and_fuse)
-                    if expected_score_when_rethrowing > overall_score_when_taking:
-                        action_priority_queue.append((-expected_score_when_rethrowing, np.r_[take_and_fuse, False]))
-                    else:
-                        action_priority_queue.append((-overall_score_when_taking, np.r_[take_and_fuse, True]))
+                    expected_score_when_rethrowing = self.get_expected_total_score_when_not_collecting(
+                        overall_score_when_taking, n_remaining_take_i)
 
-            expected_scores, actions = zip(*action_priority_queue)
-            idx_max_expected_score = np.argmin(expected_scores)
+                    # add both actions for taking and continuing with corresponding (expected) score
+                    action = tuple(np.r_[take_and_fuse, False])
+                    if action not in actions_dict:
+                        actions_dict[action] = expected_score_when_rethrowing
+
+                    action = tuple(np.r_[take_and_fuse, True])
+                    if action not in actions_dict:
+                        actions_dict[action] = overall_score_when_taking
+
+            actions_list = [(v, np.array(k)) for k, v in actions_dict.items()]
+
+            expected_scores, actions = zip(*actions_list)
+            idx_max_expected_score = np.argmax(expected_scores)
+
+            if self.log:
+                self.log_actions(actions, expected_scores)
+
             return actions[idx_max_expected_score]
+
+    def log_actions(self, actions, expected_scores):
+        expected_scores_with_idx = [(exp_score, i) for i, exp_score in enumerate(expected_scores)]
+        expected_scores_with_idx_sorted = sorted(expected_scores_with_idx, reverse=True)
+        _, idxs_sorted = zip(*expected_scores_with_idx_sorted)
+        # self.logfile.write(f'Top {self.log_top_actions} actions by expected score\n')
+        self.logfile.write(f'-------------------------\n')
+        if self.log_top_actions is None:
+            n_log_actions = len(actions)
+        else:
+            n_log_actions = np.minimum(self.log_top_actions, len(actions))
+        for i in range(n_log_actions):
+            for act in actions[idxs_sorted[i]][:self.number_dice]:
+                if act:
+                    self.logfile.write(' X ')
+                else:
+                    self.logfile.write('   ')
+            if actions[idxs_sorted[i]][-2]:
+                self.logfile.write(' Fu')
+            else:
+                self.logfile.write('   ')
+            if actions[idxs_sorted[i]][-1]:
+                self.logfile.write(' Cl')
+            else:
+                self.logfile.write('   ')
+            self.logfile.write(f' ({expected_scores[idxs_sorted[i]]:.3f})\n')
+        self.logfile.write('\n\n')
+        self.logfile.flush()
+
+    def log_dice_values(self):
+        vis_str = ''
+        for value in self.dice_values:
+            if not value:
+                vis_str += ' _ '
+            else:
+                vis_str += f' {value} '
+        vis_str += '\n'
+        self.logfile.write(vis_str)
 
     def build_lut_factorial(self):
         return {i: np.prod(np.arange(1, i+1)) for i in range(1, self.rules.number_dice+1)}
@@ -163,13 +234,18 @@ class OptimalExpectedValueAgent(Agent):
         # score += self.expected_additional_scores_when_rethrowing_n_dice[n_remaining - 1]
         # return score
 
-    def get_expected_score_when_rethrowing(self, overall_score_when_taking, take_and_fuse):
+    def get_n_remaining(self, take_and_fuse):
         n_remaining = np.sum(self.dice_values > 0) - np.sum(take_and_fuse[:self.number_dice])
         if take_and_fuse[-1]:
             n_remaining += 1
+        return n_remaining
 
+    def get_expected_additional_score_for_n_dice_remaining(self, n_remaining):
+        return self.expected_additional_scores_when_rethrowing_n_dice[n_remaining-1]
+
+    def get_expected_total_score_when_not_collecting(self, overall_score_when_taking, n_remaining):
         return self.weight_current_score[n_remaining-1] * overall_score_when_taking + \
-               self.expected_additional_scores_when_rethrowing_n_dice[n_remaining-1]
+               self.get_expected_additional_score_for_n_dice_remaining(n_remaining)
 
 
 if __name__ == '__main__':
@@ -208,19 +284,3 @@ if __name__ == '__main__':
     plt.xlabel('#Recursions')
     plt.ylabel('log_10(MSE)')
     plt.show()
-
-    # t0 = time.time()
-    # # agent.build_potential_additional_score_lookup_tables()
-    # list_luts = agent.list_lookup_tables_additional_potential_scores
-    # t1 = time.time()
-    # print(f'Elapsed time: {t1-t0} s')
-    # # for dict_elem in list_luts:
-    # #     for k, v in dict_elem.items():
-    # #         print(k,v)
-    # for dict_elem in list_luts:
-    #     print(dict_elem)
-    #
-    # agent.build_lut_factorial()
-    #
-    # agent.build_expected_additional_scores()
-    # print(agent.expected_additional_scores)
