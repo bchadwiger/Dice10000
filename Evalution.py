@@ -18,9 +18,9 @@ now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 #=======================================================================================================================
 # BENCHMARK PARAMETERS
 shuffle_turns = True
-agent_eps = np.array([0.3])
-agent_half_life = np.array([1000, 2000, 3000, 5000, 8000])
-N = 10000
+# agent_eps = np.array([0.3])
+# agent_half_life = np.array([1000, 2000, 3000, 5000, 8000])
+N = 1000
 
 # SAVE PARAMETERS
 path = f'/home/benny/Code/Artificial_Intelligence/Dice10000/results/{now_str}'
@@ -29,9 +29,9 @@ if not os.path.exists(path):
 #=======================================================================================================================
 
 benchmark_params = {
-    'shuffle_turns': shuffle_turns,
-    'agent_eps': agent_eps.tolist(),
-    'agent_half_life': agent_half_life.tolist(),
+    # 'shuffle_turns': shuffle_turns,
+    # 'agent_eps': agent_eps.tolist(),
+    # 'agent_half_life': agent_half_life.tolist(),
     'N': N
 }
 
@@ -39,12 +39,19 @@ with open(os.path.join(path, 'params.json'), 'w') as outf:
     json.dump(benchmark_params, outf, sort_keys=True, indent=4)
 
 rules = Rules()
-N_eps = agent_eps.shape[0]
-N_hl = agent_half_life.shape[0]
+# N_eps = agent_eps.shape[0]
+# N_hl = agent_half_life.shape[0]
 
-players = [Player(f'Player{i*N_hl+j} (eps={agent_eps[i]:.3f}, HL={agent_half_life[j]})',
-                  'score_weighted', rules, eps=agent_eps[i], half_life_score=agent_half_life[j])
-           for i in range(agent_eps.shape[0]) for j in range(agent_half_life.shape[0])]
+# players = [Player(f'Player{i*N_hl+j} (eps={agent_eps[i]:.3f}, HL={agent_half_life[j]})',
+#                   'score_weighted', rules, eps=agent_eps[i], half_life_score=agent_half_life[j])
+#            for i in range(agent_eps.shape[0]) for j in range(agent_half_life.shape[0])]
+
+players = [
+    Player('Player1', 'optimal_expected', rules=rules),
+    Player('Player2', 'greedy', rules=rules, eps=0.),
+    Player('Player3', 'greedy', rules=rules, eps=0.),
+    Player('Player4', 'greedy', rules=rules, eps=0.3)
+]
 
 game = Game(players, rules)
 

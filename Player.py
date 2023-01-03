@@ -1,9 +1,12 @@
 from EpsGreedyAgent import EpsGreedyAgent
 from ScoreWeightedEpsGreedyAgent import ScoreWeightedEpsGreedyAgent
+from OptimalExpectedValueAgent import OptimalExpectedValueAgent
+
 
 implemented_agents = {
     'greedy': EpsGreedyAgent,
-    'score_weighted': ScoreWeightedEpsGreedyAgent
+    'score_weighted': ScoreWeightedEpsGreedyAgent,
+    'optimal_expected': OptimalExpectedValueAgent
 }
 
 

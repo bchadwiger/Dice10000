@@ -174,10 +174,9 @@ if __name__ == '__main__':
     rules = Rules.Rules()
 
     players = [
-        Player.Player('Player1', 'greedy', rules=rules, eps=0),
+        Player.Player('Player1', 'optimal_expected', rules=rules, eps=0),
         Player.Player('Player2', 'greedy', rules=rules, eps=0.3)
     ]
 
     game = Game(players, rules)
     game.play(step_by_step=False, interactive=False)
-    

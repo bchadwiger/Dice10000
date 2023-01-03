@@ -505,7 +505,7 @@ class DiceWorld(gym.Env):
 
     def __visualize_win(self):
         self.__render_str += '+----------------------------------------------------------+\n'
-        self.__render_str += f"PLAYER {np.argmax(self.__players_turn)} WON THE GAME!\n"
+        self.__render_str += f"PLAYER {np.argmax(self.__players_turn)+1} WON THE GAME!\n"
 
     def render(self, mode='ascii'):
         """
