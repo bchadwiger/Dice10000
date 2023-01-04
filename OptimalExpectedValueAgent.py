@@ -3,18 +3,14 @@ import AgentUtilities
 import Rules
 
 import numpy as np
-from itertools import combinations_with_replacement
 from itertools import product
-import math
-import matplotlib.pyplot as plt
+
 
 
 class OptimalExpectedValueAgent(Agent):
     def __init__(self, rules=Rules.Rules(), log_path=None, log_top_actions=None, **kwargs):
         super().__init__(rules)
 
-        self.lut_factorial = self.build_lut_factorial()
-        self.list_lookup_tables_additional_potential_scores = self.build_potential_additional_score_lookup_tables()
         self.A, self.weighted_immediate_scores, self.weight_current_score = \
             self.build_system_of_equations_parameters_for_greedy_rethrowing_policy()
         self.expected_additional_scores_when_rethrowing_n_dice = self.solve_linear_system_of_equations()
@@ -41,7 +37,7 @@ class OptimalExpectedValueAgent(Agent):
         """
 
         self.update_observations(obs)
-        face_counts = AgentUtilities.get_face_counts(self.dice_values, self.rules)
+        face_counts = AgentUtilities.get_face_counts(self.dice_values)
 
         if self.log:
             self.logfile.write('==========================================\n\n')
@@ -175,72 +171,6 @@ class OptimalExpectedValueAgent(Agent):
         vis_str += '\n'
         self.logfile.write(vis_str)
 
-    def build_lut_factorial(self):
-        """
-        Creates a lookup table with factorials of the first few natural numbers, i.e.,
-        {1: 1, 2: 2, 3: 6, 4: 24, 5: 120, 6: 720}
-        :return: dict with numbers as keys and factorial of a number as values
-        """
-        return {i: np.prod(np.arange(1, i+1)) for i in range(1, self.rules.number_dice+1)}
-
-    def build_potential_additional_score_lookup_tables(self, debug=False):
-        """
-        Creates a lookup table with dice combinations for a given number of remaining dice and corresponding scores for
-        a combination. I.e., returns
-        [
-            {
-                (1,): [100, array([ True]), 0.16666666666666666],
-                (2,): [0, array([False]), 0.16666666666666666],
-                (3,): [0, array([False]), 0.16666666666666666],
-                (4,): [0, array([False]), 0.16666666666666666],
-                (5,): [50, array([ True]), 0.16666666666666666],
-                (6,): [0, array([False]), 0.16666666666666666],
-            },
-            {
-                (1, 1): [200, array([ True,  True]), 0.027777777777777776],
-                (1, 2): [100, array([ True, False]), 0.05555555555555555],
-                (1, 3): [100, array([ True, False]), 0.05555555555555555],
-                (1, 4): [100, array([ True, False]), 0.05555555555555555],
-                (1, 5): [150, array([ True,  True]), 0.05555555555555555],
-                (1, 6): [100, array([ True, False]), 0.05555555555555555],
-                (2, 2): [0, array([False, False]), 0.027777777777777776],
-                (2, 3): [0, array([False, False]), 0.05555555555555555],
-                (2, 4): [0, array([False, False]), 0.05555555555555555],
-                (2, 5): [50, array([False,  True]), 0.05555555555555555],
-                (2, 6): [0, array([False, False]), 0.05555555555555555],
-                (3, 3): [0, array([False, False]), 0.027777777777777776]
-                ...
-            },
-            ...
-        ]
-
-        :param debug:
-        :return: a list of dicts with one list element per number of remaining. Each dict maps dice combos to scores
-        """
-        list_lookup_tables_additional_potential_scores = []
-        for n_remaining in range(1, self.number_dice+1):
-            lut_i = {dice_values: list(AgentUtilities.get_potential_score(dice_values, self.rules)) for dice_values in
-                     combinations_with_replacement(list(range(1, self.rules.face_high+1)), n_remaining)}
-            list_lookup_tables_additional_potential_scores.append(lut_i)
-
-        for i, lut_i_remaining in enumerate(list_lookup_tables_additional_potential_scores):
-            prob = 0
-            for k, v in lut_i_remaining.items():
-                # if v[0] > 0 or debug:
-                prob_k = self.lut_factorial[len(k)] * \
-                         np.prod(list(1./self.lut_factorial[np.sum(np.array(k) == j)] for j in set(k))) * \
-                         1./self.rules.face_high**np.sum(len(k))
-                if debug:
-                    prob += prob_k
-                list_lookup_tables_additional_potential_scores[i][k].append(prob_k)
-
-            if debug:
-                test_prob = math.isclose(prob, 1.0)
-                # print(f'prob: {prob:.18f}, math.isclose(prob, 1.0): {test_prob}')
-                assert test_prob
-
-        return list_lookup_tables_additional_potential_scores
-
     def build_system_of_equations_parameters_for_greedy_rethrowing_policy(self):
         """
         Creates the parameters for a linear system of equations to compute the expected scores.
@@ -300,7 +230,7 @@ class OptimalExpectedValueAgent(Agent):
         weight_current_score = np.zeros([self.number_dice])
         weighted_immediate_scores = np.zeros([self.number_dice])
 
-        for i, lut_i_remaining in enumerate(self.list_lookup_tables_additional_potential_scores):
+        for i, lut_i_remaining in enumerate(AgentUtilities.list_lookup_tables_additional_potential_scores):
             for k, v in lut_i_remaining.items():
                 if v[0] == 0:
                     continue
@@ -319,7 +249,7 @@ class OptimalExpectedValueAgent(Agent):
     def get_score_when_taking(self, take):
         dice_values_tmp = self.dice_values.copy()
         dice_values_tmp[~take] = 0
-        return AgentUtilities.get_potential_score(dice_values_tmp, self.rules)[0]
+        return AgentUtilities.get_potential_score(dice_values_tmp)[0]
 
         # score += self.expected_additional_scores_when_rethrowing_n_dice[n_remaining - 1]
         # return score
@@ -339,15 +269,16 @@ class OptimalExpectedValueAgent(Agent):
 
 
 if __name__ == '__main__':
+
     agent = OptimalExpectedValueAgent()
-    print(agent.lut_factorial)
-    print('==========================')
-    for lut in agent.list_lookup_tables_additional_potential_scores:
-        for k_, v_ in lut.items():
-            print(f'{k_}: {v_}')
-        print()
+    # print(agent.lut_factorial)
+    # print('==========================')
+    # for lut in agent.list_lookup_tables_additional_potential_scores:
+    #     for k_, v_ in lut.items():
+    #         print(f'{k_}: {v_}')
+    #     print()
     #
-    # print(f'Coefficient matrix A = \n{agent.A}')
+    print(f'Coefficient matrix A = \n{agent.A}')
     # print(f'det(I - A): {np.linalg.det(agent.A - np.eye(6))}')
     # print('==========================')
     # # solve (I - A)f = b

@@ -20,7 +20,7 @@ now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 shuffle_turns = True
 # agent_eps = np.array([0.3])
 # agent_half_life = np.array([1000, 2000, 3000, 5000, 8000])
-N = 1000
+N = 100
 
 # SAVE PARAMETERS
 path = f'/home/benny/Code/Artificial_Intelligence/Dice10000/results/{now_str}'
@@ -47,8 +47,7 @@ rules = Rules()
 #            for i in range(agent_eps.shape[0]) for j in range(agent_half_life.shape[0])]
 
 players = [
-    # Player('Player1', 'optimal_expected', rules=rules, log_path=os.path.join(path, 'log_actions.log')),
-    Player('Player1', 'optimal_expected', rules=rules),
+    Player('Player1', 'optimal_expected', rules=rules, log_path=None),  #log_path=os.path.join(path, 'log_actions.log')),
     Player('Player2', 'greedy', rules=rules, eps=0.),
     # Player('Player3', 'greedy', rules=rules, eps=0.3)
 ]

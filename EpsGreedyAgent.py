@@ -25,14 +25,14 @@ class EpsGreedyAgent(Agent):
         """
 
         self.update_observations(obs)
-        face_counts = AgentUtilities.get_face_counts(self.dice_values, self.rules)
+        face_counts = AgentUtilities.get_face_counts(self.dice_values)
 
         if AgentUtilities.is_straight(face_counts):
             # take straight
             return np.array([1] * self.number_dice + [0, 0], dtype=bool)
 
         take = np.zeros([self.number_dice], dtype=bool)
-        if AgentUtilities.contains_multiple(face_counts, self.rules):
+        if AgentUtilities.contains_multiple(face_counts):
             # take multiple
             for val, count in enumerate(face_counts[1:], start=1):
                 if count >= self.min_multiple:
@@ -43,7 +43,7 @@ class EpsGreedyAgent(Agent):
         take[self.dice_values == 5] = 1
 
         # collect if possible
-        collect = (self.current_score + AgentUtilities.get_potential_score(self.dice_values, self.rules)[0] >=
+        collect = (self.current_score + AgentUtilities.get_potential_score(self.dice_values)[0] >=
                    self.current_min_collect_score) and \
                   (np.sum(~self.dice_values.astype(bool)) + np.sum(take) < self.number_dice)
 
