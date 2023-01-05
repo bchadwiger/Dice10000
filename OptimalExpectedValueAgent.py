@@ -6,8 +6,15 @@ import numpy as np
 from itertools import product
 
 
-
 class OptimalExpectedValueAgent(Agent):
+    """
+    This agent uses an approach similar to a 1-step policy improvement. As initial policy it uses a greedy
+    policy that takes all dice that can be taken. For the initial value function, all states with an equal number of
+    remaining dice are summarized to one state, i.e., these states share the same value for the state-value function.
+    Then, the agent picks the action with the maximum expected score, consisting of the weighted current score, the
+    possible immediate score when picking dice, and the expected additional future score when potentially rethrowing, or
+    the actual obtained score when collecting.
+    """
     def __init__(self, rules=Rules.Rules(), log_path=None, log_top_actions=None, **kwargs):
         super().__init__(rules)
 
@@ -173,11 +180,11 @@ class OptimalExpectedValueAgent(Agent):
 
     def build_system_of_equations_parameters_for_greedy_rethrowing_policy(self):
         """
-        Creates the parameters for a linear system of equations to compute the expected scores.
+        This function computes the matrix / vectors for subsequently computing the approximate value functions as
+        solution to an LSE.
 
-        When n dice are remaining and rethrown, for n in {1,2,...,6}, for a given n all combinations in the (n-1)th list
-        element in the output of self.build_potential_additional_score_lookup_tables() are possible, yielding the
-        respective scores. E.g., when rethrowing 1 die, the possible outcomes, scores and probabilities are
+        When n dice are remaining and rethrown, for n in {1,2,...,6}, for a given n all combinations of n dice are
+        possible. E.g., when rethrowing 1 die, the possible outcomes together with scores and probabilities are
 
             (1,): [100, 0.16666],
             (2,): [0,   0.16666],
@@ -195,20 +202,20 @@ class OptimalExpectedValueAgent(Agent):
         which is equal to
 
             2/6*current_score + 1/6*100 + 1/6*50 + 2/6*expected_additional_score(n_remaining=6).
-             ^                  \------  -----/        \------------------  ------------------/
-             |                         \/                             \/
-        weight_current_score[0]        |                              |
-                                       |                            f[5] (see text below)
+             ^                  \------  -----/    \-------------------  --------------------/
+             |                         \/                              \/
+        weight_current_score[0]        |                               |
+                                       |                             f[5] (see text below)
                           weighted_immediate_scores[0]
 
-        expected_additional_score captures the expected score obtained when continuing the next dice throwi with
-        n_remaining dice.
+        The vector expected_additional_score captures the expected score obtained when continuing the next dice throw
+        with n_remaining dice.
 
-        This can be extended to all other numbers of remaining dice, and hence is captured in vectors and a matrix of
-        parameters with the number of rows equal to the total number of dice. The weights of current_score are captured
-        in the variable weight_current_score, with weight_current_score[i] representing the weight for
-        n_remaining = i+1. The weighted immediate score are captured in the vector weighted_immediate_scores, with
-        the same mapping of indices. The expected additional scores when rethrowing with n dice are captured in the
+        This can be extended to all other numbers of remaining dice, and hence can be captured in vectors and a matrix
+        of parameters with the number of rows equal to the total number of dice. The weights of current_score are
+        captured in the variable weight_current_score (with weight_current_score[i] representing the weight for
+        n_remaining = i+1). The weighted immediate score are captured in the vector weighted_immediate_scores (with
+        the same mapping of indices). The expected additional scores when rethrowing with n dice are captured in the
         vector f (again with the same mapping indices), which must be computed and can then be used to determine the
         action with best expected score.
 
